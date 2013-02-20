@@ -32,7 +32,5 @@ composer.lock
 /vendor/
 #ignore contributed modules
 blocks/navbuttons/
-course/format/colours/
 mod/hotpot/
-mod/questionnaire/
 theme/decaf/
