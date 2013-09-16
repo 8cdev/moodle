@@ -30,3 +30,7 @@ phpunit.xml
 composer.phar
 composer.lock
 /vendor/
+#ignore contributed modules
+blocks/navbuttons/
+mod/hotpot/
+theme/decaf/
