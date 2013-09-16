@@ -30,7 +30,26 @@ phpunit.xml
 composer.phar
 composer.lock
 /vendor/
+# our stuff below there
 #ignore contributed modules
 blocks/navbuttons/
 mod/hotpot/
 theme/decaf/
+#own modules
+blocks/navbuttons/
+config.site1.php
+config.site2.php
+theme/aardvark/
+theme/aardvark_postit/
+theme/aardvark_postitnote/
+theme/allc/
+theme/bootstrap/
+theme/decaf/
+theme/theme_aardvark_moodle23_2012091000.zip
+theme/theme_aardvark_postit_moodle23_2012072100.01.zip
+theme/theme_aardvark_postitnote_moodle22_2012091700.zip
+theme/theme_allc_moodle21_2.zip
+theme/theme_bootstrap_moodle23_2012101200.zip
+theme/theme_decaf_moodle24_2012101705.zip
+upgrade
+
