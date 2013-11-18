@@ -34,6 +34,7 @@ class scorm_basic_report extends scorm_default_report {
      */
     function display($scorm, $cm, $course, $download) {
         global $CFG, $DB, $OUTPUT, $PAGE;
+
         $contextmodule= context_module::instance($cm->id);
         $action = optional_param('action', '', PARAM_ALPHA);
         $attemptids = optional_param_array('attemptid', array(), PARAM_RAW);
@@ -82,21 +83,23 @@ class scorm_basic_report extends scorm_default_report {
 
         if (empty($currentgroup)) {
             // all users who can attempt scoes
-            if (!$students = get_users_by_capability($contextmodule, 'mod/scorm:savetrack', '', '', '', '', '', '', false)) {
+            if (!$students = get_users_by_capability($contextmodule, 'mod/scorm:savetrack', 'u.id', '', '', '', '', '', false)) {
                 echo $OUTPUT->notification(get_string('nostudentsyet'));
                 $nostudents = true;
                 $allowedlist = '';
             } else {
                 $allowedlist = array_keys($students);
             }
+            unset($students);
         } else {
             // all users who can attempt scoes and who are in the currently selected group
-            if (!$groupstudents = get_users_by_capability($contextmodule, 'mod/scorm:savetrack', '', '', '', '', $currentgroup, '', false)) {
+            if (!$groupstudents = get_users_by_capability($contextmodule, 'mod/scorm:savetrack', 'u.id', '', '', '', $currentgroup, '', false)) {
                 echo $OUTPUT->notification(get_string('nostudentsingroup'));
                 $nostudents = true;
                 $groupstudents = array();
             }
             $allowedlist = array_keys($groupstudents);
+            unset($groupstudents);
         }
 
         if ( !$nostudents ) {
@@ -134,7 +137,7 @@ class scorm_basic_report extends scorm_default_report {
             $headers[]= get_string('last', 'scorm');
             $columns[]= 'score';
             $headers[]= get_string('score', 'scorm');
-            if ($detailedrep && $scoes = $DB->get_records('scorm_scoes', array("scorm"=>$scorm->id), 'id')) {
+            if ($detailedrep && $scoes = $DB->get_records('scorm_scoes', array("scorm"=>$scorm->id), 'sortorder, id')) {
                 foreach ($scoes as $sco) {
                     if ($sco->launch!='') {
                         $columns[]= 'scograde'.$sco->id;
@@ -270,8 +273,8 @@ class scorm_basic_report extends scorm_default_report {
                             // Construct the SQL
             $select = 'SELECT DISTINCT '.$DB->sql_concat('u.id', '\'#\'', 'COALESCE(st.attempt, 0)').' AS uniqueid, ';
             $select .= 'st.scormid AS scormid, st.attempt AS attempt, ' .
-                    'u.id AS userid, u.idnumber, u.firstname, u.lastname, u.picture, u.imagealt, u.email' .
-                    get_extra_user_fields_sql($coursecontext, 'u', '', array('idnumber')) . ' ';
+                    user_picture::fields('u', array('idnumber'), 'userid') .
+                    get_extra_user_fields_sql($coursecontext, 'u', '', array('email', 'idnumber')) . ' ';
 
             // This part is the same for all cases - join users and scorm_scoes_track tables
             $from = 'FROM {user} u ';
@@ -377,13 +380,10 @@ class scorm_basic_report extends scorm_default_report {
                         }
                     }
                     if (in_array('picture', $columns)) {
-                        $user = (object)array(
-                                    'id'=>$scouser->userid,
-                                    'picture'=>$scouser->picture,
-                                    'imagealt'=>$scouser->imagealt,
-                                    'email'=>$scouser->email,
-                                    'firstname'=>$scouser->firstname,
-                                    'lastname'=>$scouser->lastname);
+                        $user = new stdClass();
+                        $additionalfields = explode(',', user_picture::fields());
+                        $user = username_load_fields_from_object($user, $scouser, null, $additionalfields);
+                        $user->id = $scouser->userid;
                         $row[] = $OUTPUT->user_picture($user, array('courseid'=>$course->id));
                     }
                     if (!$download) {
@@ -401,7 +401,7 @@ class scorm_basic_report extends scorm_default_report {
                         $row[] = '-';
                     } else {
                         if (!$download) {
-                            $row[] = '<a href="userreport.php?a='.$scorm->id.'&amp;user='.$scouser->userid.'&amp;attempt='.$scouser->attempt.'">'.$scouser->attempt.'</a>';
+                            $row[] = '<a href="'.$CFG->wwwroot.'/mod/scorm/report/userreport.php?id='.$cm->id.'&amp;user='.$scouser->userid.'&amp;attempt='.$scouser->attempt.'">'.$scouser->attempt.'</a>';
                         } else {
                             $row[] = $scouser->attempt;
                         }
@@ -444,8 +444,8 @@ class scorm_basic_report extends scorm_default_report {
                                     }
                                     if (!$download) {
                                         $row[] = '<img src="'.$OUTPUT->pix_url($trackdata->status, 'scorm').'" alt="'.$strstatus.'" title="'.$strstatus.'" /><br/>
-                                                <a href="userreport.php?b='.$sco->id.'&amp;user='.$scouser->userid.'&amp;attempt='.$scouser->attempt.
-                                                '" title="'.get_string('details', 'scorm').'">'.$score.'</a>';
+                                                <a href="'.$CFG->wwwroot.'/mod/scorm/report/userreporttracks.php?id='.$cm->id.'&amp;scoid='.$sco->id.'&amp;user='.$scouser->userid.
+                                                '&amp;attempt='.$scouser->attempt.'" title="'.get_string('details', 'scorm').'">'.$score.'</a>';
                                     } else {
                                         $row[] = $score;
                                     }

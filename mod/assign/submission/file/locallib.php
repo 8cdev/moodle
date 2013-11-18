@@ -85,7 +85,7 @@ class assign_submission_file extends assign_submission_plugin {
                               'maxfilessubmission',
                               'assignsubmission_file');
         $mform->setDefault('assignsubmission_file_maxfiles', $defaultmaxfilesubmissions);
-        $mform->disabledIf('assignsubmission_file_maxfiles', 'assignsubmission_file_enabled', 'eq', 0);
+        $mform->disabledIf('assignsubmission_file_maxfiles', 'assignsubmission_file_enabled', 'notchecked');
 
         $choices = get_max_upload_sizes($CFG->maxbytes,
                                         $COURSE->maxbytes,
@@ -105,7 +105,7 @@ class assign_submission_file extends assign_submission_plugin {
         $mform->setDefault('assignsubmission_file_maxsizebytes', $defaultmaxsubmissionsizebytes);
         $mform->disabledIf('assignsubmission_file_maxsizebytes',
                            'assignsubmission_file_enabled',
-                           'eq', 0);
+                           'notchecked');
     }
 
     /**
@@ -219,20 +219,17 @@ class assign_submission_file extends assign_submission_plugin {
 
         $count = $this->count_files($submission->id, ASSIGNSUBMISSION_FILE_FILEAREA);
 
-        // Send files to event system.
-        // This lets Moodle know that an assessable file was uploaded (eg for plagiarism detection).
-        $eventdata = new stdClass();
-        $eventdata->modulename = 'assign';
-        $eventdata->cmid = $this->assignment->get_course_module()->id;
-        $eventdata->itemid = $submission->id;
-        $eventdata->courseid = $this->assignment->get_course()->id;
-        $eventdata->userid = $USER->id;
-        if ($count > 1) {
-            $eventdata->files = $files;
-        }
-        $eventdata->file = $files;
-        $eventdata->pathnamehashes = array_keys($files);
-        events_trigger('assessable_file_uploaded', $eventdata);
+        $params = array(
+            'context' => context_module::instance($this->assignment->get_course_module()->id),
+            'objectid' => $submission->id,
+            'other' => array(
+                'content' => '',
+                'pathnamehashes' => array_keys($files)
+            )
+        );
+        $event = \assignsubmission_file\event\assessable_uploaded::create($params);
+        $event->set_legacy_files($files);
+        $event->trigger();
 
         if ($filesubmission) {
             $filesubmission->numfiles = $this->count_files($submission->id,
@@ -252,6 +249,7 @@ class assign_submission_file extends assign_submission_plugin {
      * Produce a list of files suitable for export that represent this feedback or submission
      *
      * @param stdClass $submission The submission
+     * @param stdClass $user The user record - unused
      * @return array - return an array of files indexed by filename
      */
     public function get_files(stdClass $submission, stdClass $user) {
@@ -449,4 +447,49 @@ class assign_submission_file extends assign_submission_plugin {
         return array(ASSIGNSUBMISSION_FILE_FILEAREA=>$this->get_name());
     }
 
+    /**
+     * Copy the student's submission from a previous submission. Used when a student opts to base their resubmission
+     * on the last submission.
+     * @param stdClass $sourcesubmission
+     * @param stdClass $destsubmission
+     */
+    public function copy_submission(stdClass $sourcesubmission, stdClass $destsubmission) {
+        global $DB;
+
+        // Copy the files across.
+        $contextid = $this->assignment->get_context()->id;
+        $fs = get_file_storage();
+        $files = $fs->get_area_files($contextid,
+                                     'assignsubmission_file',
+                                     ASSIGNSUBMISSION_FILE_FILEAREA,
+                                     $sourcesubmission->id,
+                                     'id',
+                                     false);
+        foreach ($files as $file) {
+            $fieldupdates = array('itemid' => $destsubmission->id);
+            $fs->create_file_from_storedfile($fieldupdates, $file);
+        }
+
+        // Copy the assignsubmission_file record.
+        if ($filesubmission = $this->get_file_submission($sourcesubmission->id)) {
+            unset($filesubmission->id);
+            $filesubmission->submission = $destsubmission->id;
+            $DB->insert_record('assignsubmission_file', $filesubmission);
+        }
+        return true;
+    }
+
+    /**
+     * Return a description of external params suitable for uploading a file submission from a webservice.
+     *
+     * @return external_description|null
+     */
+    public function get_external_parameters() {
+        return array(
+            'files_filemanager' => new external_value(
+                PARAM_INT,
+                'The id of a draft area containing files for this submission.'
+            )
+        );
+    }
 }

@@ -33,7 +33,7 @@ $courseid = optional_param('course', SITEID, PARAM_INT);
 // Used for processing subscription actions.
 $subscriptionid = optional_param('id', 0, PARAM_INT);
 $pollinterval  = optional_param('pollinterval', 0, PARAM_INT);
-$action = optional_param('action', '', PARAM_ALPHA);
+$action = optional_param('action', '', PARAM_INT);
 
 $url = new moodle_url('/calendar/managesubscriptions.php');
 if ($courseid != SITEID) {
@@ -115,6 +115,14 @@ $PAGE->set_button(calendar_preferences_button($course));
 $renderer = $PAGE->get_renderer('core_calendar');
 
 echo $OUTPUT->header();
+
+// Filter subscriptions which user can't edit.
+foreach($subscriptions as $subscription) {
+    if (!calendar_can_edit_subscription($subscription)) {
+        unset($subscriptions[$subscription->id]);
+    }
+}
+
 // Display a table of subscriptions.
 echo $renderer->subscription_details($courseid, $subscriptions, $importresults);
 // Display the add subscription form.

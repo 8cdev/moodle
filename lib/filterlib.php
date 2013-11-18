@@ -81,13 +81,32 @@ class filter_manager {
     public static function instance() {
         global $CFG;
         if (is_null(self::$singletoninstance)) {
-            if (!empty($CFG->perfdebug)) {
+            if (!empty($CFG->perfdebug) and $CFG->perfdebug > 7) {
                 self::$singletoninstance = new performance_measuring_filter_manager();
             } else {
                 self::$singletoninstance = new self();
             }
         }
         return self::$singletoninstance;
+    }
+
+    /**
+     * Resets the caches, usually to be called between unit tests
+     */
+    public static function reset_caches() {
+        if (self::$singletoninstance) {
+            self::$singletoninstance->unload_all_filters();
+        }
+        self::$singletoninstance = null;
+    }
+
+    /**
+     * Unloads all filters and other cached information
+     */
+    protected function unload_all_filters() {
+        $this->textfilters = array();
+        $this->stringfilters = array();
+        $this->stringfilternames = array();
     }
 
     /**
@@ -287,6 +306,16 @@ class performance_measuring_filter_manager extends filter_manager {
     protected $stringsfiltered = 0;
 
     /**
+     * Unloads all filters and other cached information
+     */
+    protected function unload_all_filters() {
+        parent::unload_all_filters();
+        $this->filterscreated = 0;
+        $this->textsfiltered = 0;
+        $this->stringsfiltered = 0;
+    }
+
+    /**
      * @param string $filtername
      * @param object $context
      * @param mixed $localconfig
@@ -484,12 +513,12 @@ function filter_get_all_installed() {
     global $CFG;
 
     $filternames = array();
-    foreach (get_list_of_plugins('filter') as $filter) {
-        if (is_readable("$CFG->dirroot/filter/$filter/filter.php")) {
+    foreach (core_component::get_plugin_list('filter') as $filter => $fulldir) {
+        if (is_readable("$fulldir/filter.php")) {
             $filternames[$filter] = filter_get_name($filter);
         }
     }
-    collatorlib::asort($filternames);
+    core_collator::asort($filternames);
     return $filternames;
 }
 
@@ -542,17 +571,22 @@ function filter_set_global_state($filtername, $state, $move = 0) {
     if (isset($on[$filtername])) {
         $filter = $on[$filtername];
         if ($filter->active != $state) {
+            add_to_config_log('filter_active', $filter->active, $state, $filtername);
+
             $filter->active = $state;
             $DB->update_record('filter_active', $filter);
             if ($filter->active == TEXTFILTER_DISABLED) {
                 unset($on[$filtername]);
                 $off = array($filter->filter => $filter) + $off;
             }
+
         }
 
     } else if (isset($off[$filtername])) {
         $filter = $off[$filtername];
         if ($filter->active != $state) {
+            add_to_config_log('filter_active', $filter->active, $state, $filtername);
+
             $filter->active = $state;
             $DB->update_record('filter_active', $filter);
             if ($filter->active != TEXTFILTER_DISABLED) {
@@ -562,6 +596,8 @@ function filter_set_global_state($filtername, $state, $move = 0) {
         }
 
     } else {
+        add_to_config_log('filter_active', '', $state, $filtername);
+
         $filter = new stdClass();
         $filter->filter    = $filtername;
         $filter->contextid = $syscontext->id;
@@ -600,11 +636,11 @@ function filter_set_global_state($filtername, $state, $move = 0) {
             }
         }
 
-        collatorlib::asort_objects_by_property($on, 'newsortorder', collatorlib::SORT_NUMERIC);
+        core_collator::asort_objects_by_property($on, 'newsortorder', core_collator::SORT_NUMERIC);
     }
 
     // Inactive are sorted by filter name.
-    collatorlib::asort_objects_by_property($off, 'filter', collatorlib::SORT_NATURAL);
+    core_collator::asort_objects_by_property($off, 'filter', core_collator::SORT_NATURAL);
 
     // Update records if necessary.
     $i = 1;
@@ -685,13 +721,23 @@ function filter_get_string_filters() {
  */
 function filter_set_applies_to_strings($filter, $applytostrings) {
     $stringfilters = filter_get_string_filters();
-    $numstringfilters = count($stringfilters);
+    $prevfilters = $stringfilters;
+    $allfilters = core_component::get_plugin_list('filter');
+
     if ($applytostrings) {
         $stringfilters[$filter] = $filter;
     } else {
         unset($stringfilters[$filter]);
     }
-    if (count($stringfilters) != $numstringfilters) {
+
+    // Remove missing filters.
+    foreach ($stringfilters as $filter) {
+        if (!isset($allfilters[$filter])) {
+            unset($stringfilters[$filter]);
+        }
+    }
+
+    if ($prevfilters != $stringfilters) {
         set_config('stringfilters', implode(',', $stringfilters));
         set_config('filterall', !empty($stringfilters));
     }
@@ -1088,6 +1134,10 @@ function filter_delete_all_for_context($contextid) {
  */
 function filter_has_global_settings($filter) {
     global $CFG;
+    $settingspath = $CFG->dirroot . '/filter/' . $filter . '/settings.php';
+    if (is_readable($settingspath)) {
+        return true;
+    }
     $settingspath = $CFG->dirroot . '/filter/' . $filter . '/filtersettings.php';
     return is_readable($settingspath);
 }
@@ -1343,13 +1393,13 @@ function filter_remove_duplicates($linkarray) {
         if ($filterobject->casesensitive) {
             $exists = in_array($filterobject->phrase, $concepts);
         } else {
-            $exists = in_array(textlib::strtolower($filterobject->phrase), $lconcepts);
+            $exists = in_array(core_text::strtolower($filterobject->phrase), $lconcepts);
         }
 
         if (!$exists) {
             $cleanlinks[] = $filterobject;
             $concepts[] = $filterobject->phrase;
-            $lconcepts[] = textlib::strtolower($filterobject->phrase);
+            $lconcepts[] = core_text::strtolower($filterobject->phrase);
         }
     }
 

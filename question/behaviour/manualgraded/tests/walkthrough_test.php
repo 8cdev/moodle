@@ -38,8 +38,11 @@ require_once(dirname(__FILE__) . '/../../../engine/tests/helpers.php');
  * @copyright  2009 The Open University
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_test_base {
+class qbehaviour_manualgraded_walkthrough_testcase extends qbehaviour_walkthrough_test_base {
     public function test_manual_graded_essay() {
+
+        // The current text editor depends on the users profile setting - so it needs a valid user.
+        $this->setAdminUser();
 
         // Create an essay question.
         $essay = test_question_maker::make_an_essay_question();
@@ -56,7 +59,7 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
                 $this->get_does_not_contain_feedback_expectation());
 
         // Simulate some data submitted by the student.
-        $this->process_submission(array('answer' => 'This is my wonderful essay!'));
+        $this->process_submission(array('answer' => 'This is my wonderful essay!', 'answerformat' => FORMAT_HTML));
 
         // Verify.
         $this->check_current_state(question_state::$complete);
@@ -68,16 +71,16 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
 
         // Process the same data again, check it does not create a new step.
         $numsteps = $this->get_step_count();
-        $this->process_submission(array('answer' => 'This is my wonderful essay!'));
+        $this->process_submission(array('answer' => 'This is my wonderful essay!', 'answerformat' => FORMAT_HTML));
         $this->check_step_count($numsteps);
 
         // Process different data, check it creates a new step.
-        $this->process_submission(array('answer' => ''));
+        $this->process_submission(array('answer' => '', 'answerformat' => FORMAT_HTML));
         $this->check_step_count($numsteps + 1);
         $this->check_current_state(question_state::$todo);
 
         // Change back, check it creates a new step.
-        $this->process_submission(array('answer' => 'This is my wonderful essay!'));
+        $this->process_submission(array('answer' => 'This is my wonderful essay!', 'answerformat' => FORMAT_HTML));
         $this->check_step_count($numsteps + 2);
 
         // Finish the attempt.
@@ -90,7 +93,7 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
                 $this->quba->get_response_summary($this->slot));
 
         // Process a manual comment.
-        $this->manual_grade('Not good enough!', 10);
+        $this->manual_grade('Not good enough!', 10, FORMAT_HTML);
 
         // Verify.
         $this->check_current_state(question_state::$mangrright);
@@ -104,6 +107,51 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
         // Verify.
         $this->check_current_state(question_state::$mangrright);
         $this->check_current_mark(1);
+    }
+
+    public function test_manual_graded_essay_not_answered() {
+
+        // The current text editor depends on the users profile setting - so it needs a valid user.
+        $this->setAdminUser();
+
+        // Create an essay question.
+        $essay = test_question_maker::make_an_essay_question();
+        $this->start_attempt_at_question($essay, 'deferredfeedback', 10);
+
+        // Check the right model is being used.
+        $this->assertEquals('manualgraded', $this->quba->get_question_attempt(
+                $this->slot)->get_behaviour_name());
+
+        // Check the initial state.
+        $this->check_current_state(question_state::$todo);
+        $this->check_current_mark(null);
+        $this->check_current_output($this->get_contains_question_text_expectation($essay),
+                $this->get_does_not_contain_feedback_expectation());
+
+        // Finish the attempt.
+        $this->quba->finish_all_questions();
+
+        // Verify.
+        $this->check_current_state(question_state::$gaveup);
+        $this->check_current_mark(null);
+        $this->assertEquals('',
+                $this->quba->get_response_summary($this->slot));
+
+        // Process a manual comment.
+        $this->manual_grade('Not good enough!', 1, FORMAT_HTML);
+
+        // Verify.
+        $this->check_current_state(question_state::$mangrpartial);
+        $this->check_current_mark(1);
+        $this->check_current_output(
+                new question_pattern_expectation('/' . preg_quote('Not good enough!') . '/'));
+
+        // Now change the max mark for the question and regrade.
+        $this->quba->regrade_question($this->slot, true, 1);
+
+        // Verify.
+        $this->check_current_state(question_state::$mangrpartial);
+        $this->check_current_mark(0.1);
     }
 
     public function test_manual_graded_truefalse() {
@@ -140,7 +188,7 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
                 $this->get_does_not_contain_specific_feedback_expectation());
 
         // Process a manual comment.
-        $this->manual_grade('Not good enough!', 1);
+        $this->manual_grade('Not good enough!', 1, FORMAT_HTML);
 
         $this->check_current_state(question_state::$mangrpartial);
         $this->check_current_mark(1);
@@ -164,7 +212,7 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
         $this->check_current_mark(null);
 
         // Simulate some data submitted by the student.
-        $this->process_submission(array('answer' => 'This is my wonderful essay!'));
+        $this->process_submission(array('answer' => 'This is my wonderful essay!', 'answerformat' => FORMAT_HTML));
 
         // Verify.
         $this->check_current_state(question_state::$complete);
@@ -181,14 +229,14 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
 
         // Process a blank manual comment. Ensure it does not change the state.
         $numsteps = $this->get_step_count();
-        $this->manual_grade('', '');
+        $this->manual_grade('', '', FORMAT_HTML);
         $this->check_step_count($numsteps);
         $this->check_current_state(question_state::$needsgrading);
         $this->check_current_mark(null);
 
         // Process a comment, but with the mark blank. Should be recorded, but
         // not change the mark.
-        $this->manual_grade('I am not sure what grade to award.', '');
+        $this->manual_grade('I am not sure what grade to award.', '', FORMAT_HTML);
         $this->check_step_count($numsteps + 1);
         $this->check_current_state(question_state::$needsgrading);
         $this->check_current_mark(null);
@@ -197,7 +245,7 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
                         preg_quote('I am not sure what grade to award.', '/') . '/'));
 
         // Now grade it.
-        $this->manual_grade('Pretty good!', '9.00000');
+        $this->manual_grade('Pretty good!', '9.00000', FORMAT_HTML);
         $this->check_step_count($numsteps + 2);
         $this->check_current_state(question_state::$mangrpartial);
         $this->check_current_mark(9);
@@ -205,13 +253,13 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
                 new question_pattern_expectation('/' . preg_quote('Pretty good!', '/') . '/'));
 
         // Process the same data again, and make sure it does not add a step.
-        $this->manual_grade('Pretty good!', '9.00000');
+        $this->manual_grade('Pretty good!', '9.00000', FORMAT_HTML);
         $this->check_step_count($numsteps + 2);
         $this->check_current_state(question_state::$mangrpartial);
         $this->check_current_mark(9);
 
         // Now set the mark back to blank.
-        $this->manual_grade('Actually, I am not sure any more.', '');
+        $this->manual_grade('Actually, I am not sure any more.', '', FORMAT_HTML);
         $this->check_step_count($numsteps + 3);
         $this->check_current_state(question_state::$needsgrading);
         $this->check_current_mark(null);
@@ -225,6 +273,9 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
     }
 
     public function test_manual_graded_essay_can_grade_0() {
+
+        // The current text editor depends on the users profile setting - so it needs a valid user.
+        $this->setAdminUser();
 
         // Create an essay question.
         $essay = test_question_maker::make_an_essay_question();
@@ -241,7 +292,7 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
                 $this->get_does_not_contain_feedback_expectation());
 
         // Simulate some data submitted by the student.
-        $this->process_submission(array('answer' => 'This is my wonderful essay!'));
+        $this->process_submission(array('answer' => 'This is my wonderful essay!', 'answerformat' => FORMAT_HTML));
 
         // Verify.
         $this->check_current_state(question_state::$complete);
@@ -261,7 +312,7 @@ class qbehaviour_manualgraded_walkthrough_test extends qbehaviour_walkthrough_te
                 $this->quba->get_response_summary($this->slot));
 
         // Process a blank comment and a grade of 0.
-        $this->manual_grade('', 0);
+        $this->manual_grade('', 0, FORMAT_HTML);
 
         // Verify.
         $this->check_current_state(question_state::$mangrwrong);

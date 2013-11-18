@@ -95,6 +95,12 @@ if (!isset($config->removeuser)) {
 
 $yesno = array( get_string('no'), get_string('yes') );
 
+$disabled = '';
+if (!ldap_paged_results_supported($config->ldap_version)) {
+    $disabled = ' disabled="disabled"';
+    echo $OUTPUT->notification(get_string('pagedresultsnotsupp', 'auth_ldap'));
+}
+
 ?>
 <table cellspacing="0" cellpadding="5" border="0">
 <tr>
@@ -280,7 +286,6 @@ $yesno = array( get_string('no'), get_string('yes') );
         <label for="pagesize"><?php print_string('pagesize_key', 'auth_ldap') ?></label>
     </td>
     <td>
-        <?php $disabled = (!ldap_paged_results_supported($config->ldap_version)) ? ' disabled="disabled"' : '' ; ?>
         <input id="pagesize" name="pagesize" type="text" value="<?php echo $config->pagesize ?>" <?php echo $disabled ?>/>
         <?php
             if (isset($err['pagesize'])) { echo $OUTPUT->error_text($err['pagesize']); }
@@ -316,7 +321,7 @@ $yesno = array( get_string('no'), get_string('yes') );
         <label for="bind_pw"><?php print_string('auth_ldap_bind_pw_key', 'auth_ldap') ?></label>
     </td>
     <td>
-        <input name="bind_pw" id="bind_pw" type="password" size="30" value="<?php echo $config->bind_pw?>" />
+        <input name="bind_pw" id="bind_pw" type="password" size="30" value="<?php echo $config->bind_pw?>" autocomplete="off"/>
         <?php if (isset($err['bind_pw'])) { echo $OUTPUT->error_text($err['bind_pw']); } ?>
     </td>
     <td>
@@ -486,6 +491,6 @@ $help .= get_string('auth_updateremote_expl', 'auth');
 $help .= '<hr />';
 $help .= get_string('auth_updateremote_ldap', 'auth');
 
-print_auth_lock_options($this->authtype, $user_fields, $help, true, true);
+print_auth_lock_options($this->authtype, $user_fields, $help, true, true, $this->get_custom_user_profile_fields());
 ?>
 </table>

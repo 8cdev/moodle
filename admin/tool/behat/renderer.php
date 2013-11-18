@@ -25,7 +25,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
-require_once($CFG->libdir . '/behat/classes/behat_command.php');
+require_once($CFG->libdir . '/behat/classes/behat_selectors.php');
 
 /**
  * Renderer for behat tool web features
@@ -37,9 +37,9 @@ require_once($CFG->libdir . '/behat/classes/behat_command.php');
 class tool_behat_renderer extends plugin_renderer_base {
 
     /**
-     * Renders the list of available steps according to the submitted filters
+     * Renders the list of available steps according to the submitted filters.
      *
-     * @param string     $stepsdefinitions HTML from behat with the available steps
+     * @param mixed $stepsdefinitions Available steps array.
      * @param moodleform $form
      * @return string HTML code
      */
@@ -64,9 +64,10 @@ class tool_behat_renderer extends plugin_renderer_base {
             get_string('newstepsinfo', 'tool_behat', $writestepslink)
         );
 
-        // List of steps
+        // List of steps.
         $html .= $this->output->box_start();
-        $html .= html_writer::tag('h1', 'Info');
+        $html .= html_writer::tag('h1', get_string('infoheading', 'tool_behat'));
+        $html .= html_writer::tag('div', get_string('aim', 'tool_behat'));
         $html .= html_writer::empty_tag('div');
         $html .= html_writer::empty_tag('ul');
         $html .= html_writer::empty_tag('li');
@@ -81,6 +82,39 @@ class tool_behat_renderer extends plugin_renderer_base {
         $form->display();
         $html .= ob_get_contents();
         ob_end_clean();
+
+        if (empty($stepsdefinitions)) {
+            $stepsdefinitions = get_string('nostepsdefinitions', 'tool_behat');
+        } else {
+
+            $stepsdefinitions = implode('', $stepsdefinitions);
+
+            // Replace text selector type arguments with a user-friendly select.
+            $stepsdefinitions = preg_replace_callback('/(TEXT_SELECTOR\d?_STRING)/',
+                function ($matches) {
+                    return html_writer::select(behat_selectors::get_allowed_text_selectors(), uniqid());
+                },
+                $stepsdefinitions
+            );
+
+            // Replace selector type arguments with a user-friendly select.
+            $stepsdefinitions = preg_replace_callback('/(SELECTOR\d?_STRING)/',
+                function ($matches) {
+                    return html_writer::select(behat_selectors::get_allowed_selectors(), uniqid());
+                },
+                $stepsdefinitions
+            );
+
+            // Replace simple OR options.
+            $regex = '#\(\?P<[^>]+>([^\)|]+\|[^\)]+)\)#';
+            $stepsdefinitions = preg_replace_callback($regex,
+                function($matches){
+                    return html_writer::select(explode('|', $matches[1]), uniqid());
+                },
+                $stepsdefinitions
+            );
+
+        }
 
         // Steps definitions.
         $html .= html_writer::tag('div', $stepsdefinitions, array('class' => 'steps-definitions'));

@@ -87,11 +87,21 @@ class restore_assign_activity_structure_step extends restore_activity_structure_
         if (!isset($data->cutoffdate)) {
             $data->cutoffdate = 0;
         }
+        if (!isset($data->markingworkflow)) {
+            $data->markingworkflow = 0;
+        }
+        if (!isset($data->markingallocation)) {
+            $data->markingallocation = 0;
+        }
 
         if (!empty($data->preventlatesubmissions)) {
             $data->cutoffdate = $data->duedate;
         } else {
             $data->cutoffdate = $this->apply_date_offset($data->cutoffdate);
+        }
+
+        if ($data->grade < 0) { // Scale found, get mapping.
+            $data->grade = -($this->get_mappingid('scale', abs($data->grade)));
         }
 
         $newitemid = $DB->insert_record('assign', $data);
@@ -131,6 +141,30 @@ class restore_assign_activity_structure_step extends restore_activity_structure_
     }
 
     /**
+     * Process a user_flags restore
+     * @param object $data The data in object form
+     * @return void
+     */
+    protected function process_assign_userflags($data) {
+        global $DB;
+
+        $data = (object)$data;
+        $oldid = $data->id;
+
+        $data->assignment = $this->get_new_parentid('assign');
+
+        $data->userid = $this->get_mappingid('user', $data->userid);
+        if (!empty($data->extensionduedate)) {
+            $data->extensionduedate = $this->apply_date_offset($data->extensionduedate);
+        } else {
+            $data->extensionduedate = 0;
+        }
+        // Flags mailed and locked need no translation on restore.
+
+        $newitemid = $DB->insert_record('assign_user_flags', $data);
+    }
+
+    /**
      * Process a grade restore
      * @param object $data The data in object form
      * @return void
@@ -147,17 +181,27 @@ class restore_assign_activity_structure_step extends restore_activity_structure_
         $data->timecreated = $this->apply_date_offset($data->timecreated);
         $data->userid = $this->get_mappingid('user', $data->userid);
         $data->grader = $this->get_mappingid('user', $data->grader);
+
+        // Handle flags restore to a different table.
+        $flags = new stdClass();
+        $flags->assignment = $this->get_new_parentid('assign');
         if (!empty($data->extensionduedate)) {
-            $data->extensionduedate = $this->apply_date_offset($data->extensionduedate);
-        } else {
-            $data->extensionduedate = 0;
+            $flags->extensionduedate = $this->apply_date_offset($data->extensionduedate);
         }
+        if (!empty($data->mailed)) {
+            $flags->mailed = $data->mailed;
+        }
+        if (!empty($data->locked)) {
+            $flags->locked = $data->locked;
+        }
+        $DB->insert_record('assign_user_flags', $flags);
 
         $newitemid = $DB->insert_record('assign_grades', $data);
 
         // Note - the old contextid is required in order to be able to restore files stored in
         // sub plugin file areas attached to the gradeid.
         $this->set_mapping('grade', $oldid, $newitemid, false, null, $this->task->get_old_contextid());
+        $this->set_mapping(restore_gradingform_plugin::itemid_mapping('submissions'), $oldid, $newitemid);
     }
 
     /**

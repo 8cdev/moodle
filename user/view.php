@@ -57,7 +57,13 @@ if (isguestuser($user)) {
 }
 
 if (!empty($CFG->forceloginforprofiles)) {
-    require_login(); // we can not log in to course due to the parent hack below
+    require_login(); // We can not log in to course due to the parent hack below.
+
+    // Guests do not have permissions to view anyone's profile if forceloginforprofiles is set.
+    if (isguestuser()) {
+        $SESSION->wantsurl = $PAGE->url->out(false);
+        redirect(get_login_url());
+    }
 }
 
 $PAGE->set_context($coursecontext);
@@ -180,11 +186,22 @@ if ($user->deleted) {
     }
 }
 
-/// OK, security out the way, now we are showing the user
+// OK, security out the way, now we are showing the user.
+// Trigger a user profile viewed event.
+$event = \core\event\user_profile_viewed::create(array(
+    'objectid' => $USER->id,
+    'relateduserid' => $user->id,
+    'context' => $usercontext,
+    'other' => array(
+        'courseid' => $course->id,
+        'courseshortname' => $course->shortname,
+        'coursefullname' => $course->fullname
+    )
+));
+$event->add_record_snapshot('user', $user);
+$event->trigger();
 
-add_to_log($course->id, "user", "view", "view.php?id=$user->id&course=$course->id", "$user->id");
-
-/// Get the hidden field list
+// Get the hidden field list.
 if (has_capability('moodle/user:viewhiddendetails', $coursecontext)) {
     $hiddenfields = array();
 } else {
@@ -231,8 +248,7 @@ echo '</div>';
 
 // Print all the little details in a list
 
-echo '<table class="list" summary="">';
-
+echo html_writer::start_tag('dl', array('class'=>'list'));
 // Show email if any of the following conditions match.
 // 1. User is viewing his own profile.
 // 2. Has allowed everyone to see email
@@ -243,7 +259,8 @@ if ($currentuser
    or ($user->maildisplay == 2 && is_enrolled($coursecontext, $USER))
    or has_capability('moodle/course:viewhiddenuserfields', $coursecontext)
    or has_capability('moodle/site:viewuseridentity', $coursecontext)) {
-    print_row(get_string("email").":", obfuscate_mailto($user->email, ''));
+    echo html_writer::tag('dt', get_string('email'));
+    echo html_writer::tag('dd', obfuscate_mailto($user->email, ''));
 }
 
 // Show last time this user accessed this course
@@ -253,12 +270,14 @@ if (!isset($hiddenfields['lastaccess'])) {
     } else {
         $datestring = get_string("never");
     }
-    print_row(get_string("lastaccess").":", $datestring);
+    echo html_writer::tag('dt', get_string('lastaccess'));
+    echo html_writer::tag('dd', $datestring);
 }
 
 // Show roles in this course
 if ($rolestring = get_user_roles_in_course($id, $course->id)) {
-    print_row(get_string('roles').':', $rolestring);
+    echo html_writer::tag('dt', get_string('roles'));
+    echo html_writer::tag('dd', $rolestring);
 }
 
 // Show groups this user is in
@@ -280,7 +299,8 @@ if (!isset($hiddenfields['groups'])) {
             }
         }
         if ($groupstr !== '') {
-            print_row(get_string("group").":", rtrim($groupstr, ', '));
+            echo html_writer::tag('dt', get_string('group'));
+            echo html_writer::tag('dd', rtrim($groupstr, ', '));
         }
     }
 }
@@ -316,23 +336,28 @@ if (!isset($hiddenfields['mycourses'])) {
                 break;
             }
         }
-        print_row(get_string('courseprofiles').':', rtrim($courselisting,', '));
+        echo html_writer::tag('dt', get_string('courseprofiles'));
+        echo html_writer::tag('dd', rtrim($courselisting,', '));
     }
 }
 
 if (!isset($hiddenfields['suspended'])) {
     if ($user->suspended) {
-        print_row('', get_string('suspended', 'auth'));
+        echo html_writer::tag('dt', "&nbsp;");
+        echo html_writer::tag('dd', get_string('suspended', 'auth'));
     }
 }
-
-echo "</table></div></div>";
-
+echo html_writer::end_tag('dl');
+echo "</div></div>"; // Closing desriptionbox and userprofilebox.
 // Print messaging link if allowed
 if (isloggedin() && has_capability('moodle/site:sendmessage', $usercontext)
     && !empty($CFG->messaging) && !isguestuser() && !isguestuser($user) && ($USER->id != $user->id)) {
     echo '<div class="messagebox">';
-    echo '<a href="'.$CFG->wwwroot.'/message/index.php?id='.$user->id.'">'.get_string('messageselectadd').'</a>';
+    $sendmessageurl = new moodle_url('/message/index.php', array('id' => $user->id));
+    if ($courseid) {
+        $sendmessageurl->param('viewing', MESSAGE_VIEW_COURSE. $courseid);
+    }
+    echo html_writer::link($sendmessageurl, get_string('messageselectadd'));
     echo '</div>';
 }
 
@@ -355,11 +380,3 @@ if ($currentuser || has_capability('moodle/user:viewdetails', $usercontext) || h
 echo '</div>';  // userprofile class
 
 echo $OUTPUT->footer();
-
-/// Functions ///////
-
-function print_row($left, $right) {
-    echo "\n<tr><th class=\"label c0\">$left</th><td class=\"info c1\">$right</td></tr>\n";
-}
-
-

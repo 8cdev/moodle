@@ -187,6 +187,10 @@ class condition_info extends condition_info_base {
         }
         return array_key_exists($cm->id, $CONDITIONLIB_PRIVATE->usedincondition[$course->id]);
     }
+
+    protected function get_context() {
+        return context_module::instance($this->item->id);
+    }
 }
 
 
@@ -285,7 +289,7 @@ class condition_info_section extends condition_info_base {
             if (!$userid) {
                 $userid = $USER->id;
             }
-            $context = context_course::instance($this->item->course);
+            $context = $this->get_context();
 
             if ($userid != $USER->id) {
                 // We are requesting for a non-current user so check it individually
@@ -352,6 +356,10 @@ class condition_info_section extends condition_info_base {
     public static function update_section_from_form($section, $fromform, $wipefirst=true) {
         $ci = new condition_info_section($section, CONDITION_MISSING_EVERYTHING);
         parent::update_from_form($ci, $fromform, $wipefirst);
+    }
+
+    protected function get_context() {
+        return context_course::instance($this->item->course);
     }
 }
 
@@ -599,12 +607,17 @@ abstract class condition_info_base {
     }
 
     /**
-     * The user fields we can compare
+     * Returns list of user fields that can be compared.
      *
-     * @global moodle_database $DB
+     * If you specify $formatoptions, then format_string will be called on the
+     * custom field names. This is necessary for multilang support to work so
+     * you should include this parameter unless you are going to format the
+     * text later.
+     *
+     * @param array $formatoptions Passed to format_string if provided
      * @return array Associative array from user field constants to display name
      */
-    public static function get_condition_user_fields() {
+    public static function get_condition_user_fields($formatoptions = null) {
         global $DB;
 
         $userfields = array(
@@ -613,7 +626,6 @@ abstract class condition_info_base {
             'email' => get_user_field_name('email'),
             'city' => get_user_field_name('city'),
             'country' => get_user_field_name('country'),
-            'interests' => get_user_field_name('interests'),
             'url' => get_user_field_name('url'),
             'icq' => get_user_field_name('icq'),
             'skype' => get_user_field_name('skype'),
@@ -631,7 +643,11 @@ abstract class condition_info_base {
         // Go through the custom profile fields now
         if ($user_info_fields = $DB->get_records('user_info_field')) {
             foreach ($user_info_fields as $field) {
-                $userfields[$field->id] = $field->name;
+                if ($formatoptions) {
+                    $userfields[$field->id] = format_string($field->name, true, $formatoptions);
+                } else {
+                    $userfields[$field->id] = $field->name;
+                }
             }
         }
 
@@ -747,16 +763,12 @@ abstract class condition_info_base {
      * Obtains a string describing all availability restrictions (even if
      * they do not apply any more).
      *
-     * @global stdClass $COURSE
-     * @global moodle_database $DB
-     * @param object $modinfo Usually leave as null for default. Specify when
-     *   calling recursively from inside get_fast_modinfo. The value supplied
-     *   here must include list of all CMs with 'id' and 'name'
+     * @param course_modinfo|null $modinfo Usually leave as null for default. Specify when
+     *   calling recursively from inside get_fast_modinfo()
      * @return string Information string (for admin) about all restrictions on
      *   this item
      */
     public function get_full_information($modinfo=null) {
-        global $COURSE, $DB;
         $this->require_data();
 
         $information = '';
@@ -764,16 +776,10 @@ abstract class condition_info_base {
 
         // Completion conditions
         if (count($this->item->conditionscompletion) > 0) {
-            if ($this->item->course == $COURSE->id) {
-                $course = $COURSE;
-            } else {
-                $course = $DB->get_record('course', array('id' => $this->item->course),
-                        'id, enablecompletion, modinfo, sectioncache', MUST_EXIST);
+            if (!$modinfo) {
+                $modinfo = get_fast_modinfo($this->item->course);
             }
             foreach ($this->item->conditionscompletion as $cmid => $expectedcompletion) {
-                if (!$modinfo) {
-                    $modinfo = get_fast_modinfo($course);
-                }
                 if (empty($modinfo->cms[$cmid])) {
                     continue;
                 }
@@ -808,11 +814,19 @@ abstract class condition_info_base {
 
         // User field conditions
         if (count($this->item->conditionsfield) > 0) {
+            $context = $this->get_context();
             // Need the array of operators
             foreach ($this->item->conditionsfield as $field => $details) {
                 $a = new stdclass;
-                $a->field = $details->fieldname;
-                $a->value = $details->value;
+                // Display the fieldname into current lang.
+                if (is_numeric($field)) {
+                    // Is a custom profile field (will use multilang).
+                    $translatedfieldname = $details->fieldname;
+                } else {
+                    $translatedfieldname = get_user_field_name($details->fieldname);
+                }
+                $a->field = format_string($translatedfieldname, true, array('context' => $context));
+                $a->value = s($details->value);
                 $information .= html_writer::start_tag('li');
                 $information .= get_string('requires_user_field_'.$details->operator, 'condition', $a) . ' ';
                 $information .= html_writer::end_tag('li');
@@ -925,8 +939,6 @@ abstract class condition_info_base {
      * - This does not take account of the viewhiddenactivities capability.
      *   That should apply later.
      *
-     * @global stdClass $COURSE
-     * @global moodle_database $DB
      * @uses COMPLETION_COMPLETE
      * @uses COMPLETION_COMPLETE_FAIL
      * @uses COMPLETION_COMPLETE_PASS
@@ -937,13 +949,11 @@ abstract class condition_info_base {
      *   required for all course-modules, to make the front page and similar
      *   pages work more quickly (works only for current user)
      * @param int $userid If set, specifies a different user ID to check availability for
-     * @param object $modinfo Usually leave as null for default. Specify when
-     *   calling recursively from inside get_fast_modinfo. The value supplied
-     *   here must include list of all CMs with 'id' and 'name'
+     * @param course_modinfo|null $modinfo Usually leave as null for default. Specify when
+     *   calling recursively from inside get_fast_modinfo()
      * @return bool True if this item is available to the user, false otherwise
      */
     public function is_available(&$information, $grabthelot=false, $userid=0, $modinfo=null) {
-        global $COURSE, $DB;
         $this->require_data();
 
         $available = true;
@@ -951,20 +961,13 @@ abstract class condition_info_base {
 
         // Check each completion condition
         if (count($this->item->conditionscompletion) > 0) {
-            if ($this->item->course == $COURSE->id) {
-                $course = $COURSE;
-            } else {
-                $course = $DB->get_record('course', array('id' => $this->item->course),
-                        'id, enablecompletion, modinfo, sectioncache', MUST_EXIST);
+            if (!$modinfo) {
+                $modinfo = get_fast_modinfo($this->item->course);
             }
-
-            $completion = new completion_info($course);
+            $completion = new completion_info($modinfo->get_course());
             foreach ($this->item->conditionscompletion as $cmid => $expectedcompletion) {
                 // If this depends on a deleted module, handle that situation
                 // gracefully.
-                if (!$modinfo) {
-                    $modinfo = get_fast_modinfo($course);
-                }
                 if (empty($modinfo->cms[$cmid])) {
                     global $PAGE;
                     if (isset($PAGE) && strpos($PAGE->pagetype, 'course-view-')===0) {
@@ -1036,14 +1039,22 @@ abstract class condition_info_base {
 
         // Check if user field condition
         if (count($this->item->conditionsfield) > 0) {
+            $context = $this->get_context();
             foreach ($this->item->conditionsfield as $field => $details) {
                 $uservalue = $this->get_cached_user_profile_field($userid, $field);
                 if (!$this->is_field_condition_met($details->operator, $uservalue, $details->value)) {
                     // Set available to false
                     $available = false;
+                    // Display the fieldname into current lang.
+                    if (is_numeric($field)) {
+                        // Is a custom profile field (will use multilang).
+                        $translatedfieldname = $details->fieldname;
+                    } else {
+                        $translatedfieldname = get_user_field_name($details->fieldname);
+                    }
                     $a = new stdClass();
-                    $a->field = $details->fieldname;
-                    $a->value = $details->value;
+                    $a->field = format_string($translatedfieldname, true, array('context' => $context));
+                    $a->value = s($details->value);
                     $information .= html_writer::start_tag('li');
                     $information .= get_string('requires_user_field_'.$details->operator, 'condition', $a) . ' ';
                     $information .= html_writer::end_tag('li');
@@ -1148,7 +1159,6 @@ abstract class condition_info_base {
      *
      * @global stdClass $USER
      * @global moodle_database $DB
-     * @global stdClass $SESSION
      * @param int $gradeitemid Grade item ID we're interested in
      * @param bool $grabthelot If true, grabs all scores for current user on
      *   this course, so that later ones come from cache
@@ -1158,71 +1168,73 @@ abstract class condition_info_base {
      *   or 37.21), or false if user does not have a grade yet
      */
     private function get_cached_grade_score($gradeitemid, $grabthelot=false, $userid=0) {
-        global $USER, $DB, $SESSION;
-        if ($userid==0 || $userid==$USER->id) {
-            // For current user, go via cache in session
-            if (empty($SESSION->gradescorecache) || $SESSION->gradescorecacheuserid!=$USER->id) {
-                $SESSION->gradescorecache = array();
-                $SESSION->gradescorecacheuserid = $USER->id;
-            }
-            if (!array_key_exists($gradeitemid, $SESSION->gradescorecache)) {
-                if ($grabthelot) {
-                    // Get all grades for the current course
-                    $rs = $DB->get_recordset_sql('
-                            SELECT
-                                gi.id,gg.finalgrade,gg.rawgrademin,gg.rawgrademax
-                            FROM
-                                {grade_items} gi
-                                LEFT JOIN {grade_grades} gg ON gi.id=gg.itemid AND gg.userid=?
-                            WHERE
-                                gi.courseid = ?', array($USER->id, $this->item->course));
-                    foreach ($rs as $record) {
-                        $SESSION->gradescorecache[$record->id] =
-                            is_null($record->finalgrade)
-                                // No grade = false
-                                ? false
-                                // Otherwise convert grade to percentage
-                                : (($record->finalgrade - $record->rawgrademin) * 100) /
-                                    ($record->rawgrademax - $record->rawgrademin);
-
-                    }
-                    $rs->close();
-                    // And if it's still not set, well it doesn't exist (eg
-                    // maybe the user set it as a condition, then deleted the
-                    // grade item) so we call it false
-                    if (!array_key_exists($gradeitemid, $SESSION->gradescorecache)) {
-                        $SESSION->gradescorecache[$gradeitemid] = false;
-                    }
-                } else {
-                    // Just get current grade
-                    $record = $DB->get_record('grade_grades', array(
-                        'userid'=>$USER->id, 'itemid'=>$gradeitemid));
-                    if ($record && !is_null($record->finalgrade)) {
-                        $score = (($record->finalgrade - $record->rawgrademin) * 100) /
-                            ($record->rawgrademax - $record->rawgrademin);
-                    } else {
-                        // Treat the case where row exists but is null, same as
-                        // case where row doesn't exist
-                        $score = false;
-                    }
-                    $SESSION->gradescorecache[$gradeitemid]=$score;
-                }
-            }
-            return $SESSION->gradescorecache[$gradeitemid];
-        } else {
-            // Not the current user, so request the score individually
-            $record = $DB->get_record('grade_grades', array(
-                'userid'=>$userid, 'itemid'=>$gradeitemid));
-            if ($record && !is_null($record->finalgrade)) {
-                $score = (($record->finalgrade - $record->rawgrademin) * 100) /
-                    ($record->rawgrademax - $record->rawgrademin);
-            } else {
-                // Treat the case where row exists but is null, same as
-                // case where row doesn't exist
-                $score = false;
-            }
-            return $score;
+        global $USER, $DB;
+        if (!$userid) {
+            $userid = $USER->id;
         }
+        $cache = cache::make('core', 'gradecondition');
+        if (($cachedgrades = $cache->get($userid)) === false) {
+            $cachedgrades = array();
+        }
+        if (!array_key_exists($gradeitemid, $cachedgrades)) {
+            if ($grabthelot) {
+                // Get all grades for the current course
+                $rs = $DB->get_recordset_sql('
+                        SELECT
+                            gi.id,gg.finalgrade,gg.rawgrademin,gg.rawgrademax
+                        FROM
+                            {grade_items} gi
+                            LEFT JOIN {grade_grades} gg ON gi.id=gg.itemid AND gg.userid=?
+                        WHERE
+                            gi.courseid = ?', array($userid, $this->item->course));
+                foreach ($rs as $record) {
+                    $cachedgrades[$record->id] =
+                        is_null($record->finalgrade)
+                            // No grade = false
+                            ? false
+                            // Otherwise convert grade to percentage
+                            : (($record->finalgrade - $record->rawgrademin) * 100) /
+                                ($record->rawgrademax - $record->rawgrademin);
+
+                }
+                $rs->close();
+                // And if it's still not set, well it doesn't exist (eg
+                // maybe the user set it as a condition, then deleted the
+                // grade item) so we call it false
+                if (!array_key_exists($gradeitemid, $cachedgrades)) {
+                    $cachedgrades[$gradeitemid] = false;
+                }
+            } else {
+                // Just get current grade
+                $record = $DB->get_record('grade_grades', array(
+                    'userid'=>$userid, 'itemid'=>$gradeitemid));
+                if ($record && !is_null($record->finalgrade)) {
+                    $score = (($record->finalgrade - $record->rawgrademin) * 100) /
+                        ($record->rawgrademax - $record->rawgrademin);
+                } else {
+                    // Treat the case where row exists but is null, same as
+                    // case where row doesn't exist
+                    $score = false;
+                }
+                $cachedgrades[$gradeitemid]=$score;
+            }
+            $cache->set($userid, $cachedgrades);
+        }
+        return $cachedgrades[$gradeitemid];
+    }
+
+    /**
+     * Called by grade code to inform the completion system when a grade has
+     * been changed. Grades can be used to determine condition for
+     * the course-module or section.
+     *
+     * Note that this function may be called twice for one changed grade object.
+     *
+     * @param grade_grade $grade
+     * @param bool $deleted
+     */
+    public static function inform_grade_changed($grade, $deleted) {
+        cache::make('core', 'gradecondition')->delete($grade->userid);
     }
 
     /**
@@ -1297,7 +1309,7 @@ abstract class condition_info_base {
      * @param int $fieldid the user profile field id
      * @return string the user value, or false if user does not have a user field value yet
      */
-    private function get_cached_user_profile_field($userid, $fieldid) {
+    protected function get_cached_user_profile_field($userid, $fieldid) {
         global $USER, $DB, $CFG;
 
         if ($userid === 0) {
@@ -1306,8 +1318,8 @@ abstract class condition_info_base {
         }
         $iscurrentuser = $USER->id == $userid;
 
-        if (isguestuser($userid)) {
-            // Must be logged in and can't be the guest. (this should never happen anyway)
+        if (isguestuser($userid) || ($iscurrentuser && !isloggedin())) {
+            // Must be logged in and can't be the guest. (e.g. front page)
             return false;
         }
 
@@ -1386,16 +1398,12 @@ abstract class condition_info_base {
     }
 
     /**
-     * For testing only. Wipes information cached in user session.
-     *
-     * @global stdClass $SESSION
+     * For testing only. Wipes information cached in cache.
+     * Replaced with {@link core_conditionlib_testcase::wipe_condition_cache()}
+     * @deprecated since 2.6
      */
     static function wipe_session_cache() {
-        global $SESSION;
-        unset($SESSION->gradescorecache);
-        unset($SESSION->gradescorecacheuserid);
-        unset($SESSION->userfieldcache);
-        unset($SESSION->userfieldcacheuserid);
+        cache::make('core', 'gradecondition')->purge();
     }
 
     /**
@@ -1443,6 +1451,13 @@ abstract class condition_info_base {
             }
         }
     }
+
+    /**
+     * Obtains context for any necessary checks.
+     *
+     * @return context Suitable context for the item
+     */
+    protected abstract function get_context();
 }
 
 condition_info::init_global_cache();

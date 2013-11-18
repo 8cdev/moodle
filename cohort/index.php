@@ -56,7 +56,7 @@ if (!$manager) {
 $strcohorts = get_string('cohorts', 'cohort');
 
 if ($category) {
-    $PAGE->set_pagelayout('report');
+    $PAGE->set_pagelayout('admin');
     $PAGE->set_context($context);
     $PAGE->set_url('/cohort/index.php', array('contextid'=>$context->id));
     $PAGE->set_title($strcohorts);
@@ -86,6 +86,7 @@ $search .= html_writer::start_tag('div');
 $search .= html_writer::label(get_string('searchcohort', 'cohort'), 'cohort_search_q'); // No : in form labels!
 $search .= html_writer::empty_tag('input', array('id'=>'cohort_search_q', 'type'=>'text', 'name'=>'search', 'value'=>$searchquery));
 $search .= html_writer::empty_tag('input', array('type'=>'submit', 'value'=>get_string('search', 'cohort')));
+$search .= html_writer::empty_tag('input', array('type'=>'hidden', 'name'=>'contextid', 'value'=>$contextid));
 $search .= html_writer::end_tag('div');
 $search .= html_writer::end_tag('form');
 echo $search;

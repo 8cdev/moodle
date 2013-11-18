@@ -100,20 +100,25 @@ class block_recent_activity extends block_base {
     }
 
     /**
-     * Returns all recent enrollments
+     * Returns all recent enrolments.
+     *
+     * This function previously used get_recent_enrolments located in lib/deprecatedlib.php which would
+     * return an empty array which was identified in MDL-36993. The use of this function outside the
+     * deprecated lib was removed in MDL-40649.
      *
      * @todo MDL-36993 this function always return empty array
      * @return array array of entries from {user} table
      */
     protected function get_recent_enrolments() {
-        return get_recent_enrolments($this->page->course->id, $this->get_timestart());
+        return array();
     }
 
     /**
      * Returns list of recent changes in course structure
      *
      * It includes adding, editing or deleting of the resources or activities
-     * Excludes changes on labels, and also if activity was both added and deleted
+     * Excludes changes on modules without a view link (i.e. labels), and also
+     * if activity was both added and deleted
      *
      * @return array array of changes. Each element is an array containing attributes:
      *    'action' - one of: 'add mod', 'update mod', 'delete mod'
@@ -135,13 +140,6 @@ class block_recent_activity extends block_base {
             foreach ($logs as $key => $log) {
                 $info = explode(' ', $log->info);
 
-                // note: in most cases I replaced hardcoding of label with use of
-                // $cm->has_view() but it was not possible to do this here because
-                // we don't necessarily have the $cm for it
-                if ($info[0] == 'label') {     // Labels are ignored in recent activity
-                    continue;
-                }
-
                 if (count($info) != 2) {
                     debugging("Incorrect log entry info: id = ".$log->id, DEBUG_DEVELOPER);
                     continue;
@@ -151,6 +149,11 @@ class block_recent_activity extends block_base {
                 $instanceid = $info[1];
 
                 if ($log->action == 'delete mod') {
+                    if (plugin_supports('mod', $modname, FEATURE_NO_VIEW_LINK, false)) {
+                        // we should better call cm_info::has_view() because it can be
+                        // dynamic. But there is no instance of cm_info now
+                        continue;
+                    }
                     // unfortunately we do not know if the mod was visible
                     if (!array_key_exists($log->info, $newgones)) {
                         $changelist[$log->info] = array('action' => $log->action,
@@ -168,7 +171,7 @@ class block_recent_activity extends block_base {
                         continue;
                     }
                     $cm = $modinfo->instances[$modname][$instanceid];
-                    if ($cm->uservisible && empty($changelist[$log->info])) {
+                    if ($cm->has_view() && $cm->uservisible && empty($changelist[$log->info])) {
                         $changelist[$log->info] = array('action' => $log->action, 'module' => $cm);
                     }
                 }

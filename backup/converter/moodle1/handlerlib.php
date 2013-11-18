@@ -84,7 +84,7 @@ abstract class moodle1_handlers_factory {
         global $CFG;
 
         $handlers = array();
-        $plugins = get_plugin_list($type);
+        $plugins = core_component::get_plugin_list($type);
         foreach ($plugins as $name => $dir) {
             $handlerfile  = $dir . '/backup/moodle1/lib.php';
             $handlerclass = "moodle1_{$type}_{$name}_handler";
@@ -866,9 +866,11 @@ class moodle1_course_outline_handler extends moodle1_xml_handler {
         // host...
         $versionfile = $CFG->dirroot.'/mod/'.$data['modulename'].'/version.php';
         if (file_exists($versionfile)) {
-            $module = new stdClass();
+            $plugin = new stdClass();
+            $plugin->version = null;
+            $module = $plugin;
             include($versionfile);
-            $data['version'] = $module->version;
+            $data['version'] = $plugin->version;
         } else {
             $data['version'] = null;
         }
@@ -1041,6 +1043,24 @@ class moodle1_question_bank_handler extends moodle1_xml_handler {
     private $qtypehandlers = null;
 
     /**
+     * Return the file manager instance used.
+     *
+     * @return moodle1_file_manager
+     */
+    public function get_file_manager() {
+        return $this->fileman;
+    }
+
+    /**
+     * Returns the information about the question category context being currently parsed
+     *
+     * @return array with keys contextid, contextlevel and contextinstanceid
+     */
+    public function get_current_category_context() {
+        return $this->currentcategory;
+    }
+
+    /**
      * Registers path that are not qtype-specific
      */
     public function get_paths() {
@@ -1191,9 +1211,20 @@ class moodle1_question_bank_handler extends moodle1_xml_handler {
             $data['generalfeedbackformat'] = FORMAT_HTML;
         }
 
+        // Migrate files in questiontext.
+        $this->fileman->contextid = $this->currentcategory['contextid'];
+        $this->fileman->component = 'question';
+        $this->fileman->filearea  = 'questiontext';
+        $this->fileman->itemid    = $data['id'];
+        $data['questiontext'] = moodle1_converter::migrate_referenced_files($data['questiontext'], $this->fileman);
+
+        // Migrate files in generalfeedback.
+        $this->fileman->filearea  = 'generalfeedback';
+        $data['generalfeedback'] = moodle1_converter::migrate_referenced_files($data['generalfeedback'], $this->fileman);
+
         // replay the upgrade step 2010080901 - updating question image
         if (!empty($data['image'])) {
-            if (textlib::substr(textlib::strtolower($data['image']), 0, 7) == 'http://') {
+            if (core_text::substr(core_text::strtolower($data['image']), 0, 7) == 'http://') {
                 // it is a link, appending to existing question text
                 $data['questiontext'] .= ' <img src="' . $data['image'] . '" />';
 
@@ -1306,7 +1337,7 @@ class moodle1_question_bank_handler extends moodle1_xml_handler {
         if (is_null($this->qtypehandlers)) {
             // initialize the list of qtype handler instances
             $this->qtypehandlers = array();
-            foreach (get_plugin_list('qtype') as $qtypename => $qtypelocation) {
+            foreach (core_component::get_plugin_list('qtype') as $qtypename => $qtypelocation) {
                 $filename = $qtypelocation.'/backup/moodle1/lib.php';
                 if (file_exists($filename)) {
                     $classname = 'moodle1_qtype_'.$qtypename.'_handler';
@@ -1736,10 +1767,39 @@ abstract class moodle1_qtype_handler extends moodle1_plugin_handler {
         foreach ($answers as $elementname => $elements) {
             foreach ($elements as $element) {
                 $answer = $this->convert_answer($element, $qtype);
+                // Migrate images in answertext.
+                if ($answer['answerformat'] == FORMAT_HTML) {
+                    $answer['answertext'] = $this->migrate_files($answer['answertext'], 'question', 'answer', $answer['id']);
+                }
+                // Migrate images in feedback.
+                if ($answer['feedbackformat'] == FORMAT_HTML) {
+                    $answer['feedback'] = $this->migrate_files($answer['feedback'], 'question', 'answerfeedback', $answer['id']);
+                }
                 $this->write_xml('answer', $answer, array('/answer/id'));
             }
         }
         $this->xmlwriter->end_tag('answers');
+    }
+
+    /**
+     * Migrate files belonging to one qtype plugin text field.
+     *
+     * @param array $text the html fragment containing references to files
+     * @param string $component the component for restored files
+     * @param string $filearea the file area for restored files
+     * @param int $itemid the itemid for restored files
+     *
+     * @return string the text for this field, after files references have been processed
+     */
+    protected function migrate_files($text, $component, $filearea, $itemid) {
+        $context = $this->qbankhandler->get_current_category_context();
+        $fileman = $this->qbankhandler->get_file_manager();
+        $fileman->contextid = $context['contextid'];
+        $fileman->component = $component;
+        $fileman->filearea  = $filearea;
+        $fileman->itemid    = $itemid;
+        $text = moodle1_converter::migrate_referenced_files($text, $fileman);
+        return $text;
     }
 
     /**
@@ -1900,7 +1960,8 @@ abstract class moodle1_qtype_handler extends moodle1_plugin_handler {
         if ($qtype !== 'multichoice') {
             $new['answerformat'] = FORMAT_PLAIN;
         } else {
-            $new['answerformat'] = FORMAT_MOODLE;
+            $new['answertext'] = text_to_html($new['answertext'], false, false, true);
+            $new['answerformat'] = FORMAT_HTML;
         }
 
         if ($CFG->texteditors !== 'textarea') {

@@ -107,14 +107,14 @@ class core_files_renderer extends plugin_renderer_base {
         $module = array(
             'name'=>'form_filemanager',
             'fullpath'=>'/lib/form/filemanager.js',
-            'requires' => array('core_filepicker', 'base', 'io-base', 'node', 'json', 'core_dndupload', 'panel', 'resize-plugin', 'dd-plugin'),
+            'requires' => array('moodle-core-notification-dialogue', 'core_filepicker', 'base', 'io-base', 'node', 'json', 'core_dndupload', 'panel', 'resize-plugin', 'dd-plugin'),
             'strings' => array(
                 array('error', 'moodle'), array('info', 'moodle'), array('confirmdeletefile', 'repository'),
                 array('draftareanofiles', 'repository'), array('entername', 'repository'), array('enternewname', 'repository'),
                 array('invalidjson', 'repository'), array('popupblockeddownload', 'repository'),
                 array('unknownoriginal', 'repository'), array('confirmdeletefolder', 'repository'),
                 array('confirmdeletefilewithhref', 'repository'), array('confirmrenamefolder', 'repository'),
-                array('confirmrenamefile', 'repository')
+                array('confirmrenamefile', 'repository'), array('newfolder', 'repository'), array('edit', 'moodle')
             )
         );
         if (empty($filemanagertemplateloaded)) {
@@ -201,14 +201,14 @@ class core_files_renderer extends plugin_renderer_base {
     <div class="fp-navbar">
         <div class="filemanager-toolbar">
             <div class="fp-toolbar">
-                <div class="{!}fp-btn-add"><a href="#"><img src="'.$this->pix_url('a/add_file').'" /> '.$straddfile.'</a></div>
-                <div class="{!}fp-btn-mkdir"><a href="#"><img src="'.$this->pix_url('a/create_folder').'" /> '.$strmakedir.'</a></div>
-                <div class="{!}fp-btn-download"><a href="#"><img src="'.$this->pix_url('a/download_all').'" /> '.$strdownload.'</a></div>
+                <div class="{!}fp-btn-add"><a role="button" title="'.$straddfile.'" href="#"><img src="'.$this->pix_url('a/add_file').'" alt="" /></a></div>
+                <div class="{!}fp-btn-mkdir"><a role="button" title="'.$strmakedir.'" href="#"><img src="'.$this->pix_url('a/create_folder').'" alt="" /></a></div>
+                <div class="{!}fp-btn-download"><a role="button" title="'.$strdownload.'" href="#"><img src="'.$this->pix_url('a/download_all').'" alt="" /></a></div>
             </div>
             <div class="{!}fp-viewbar">
-                <a title="'. get_string('displayicons', 'repository') .'" class="{!}fp-vb-icons" href="#"></a>
-                <a title="'. get_string('displaydetails', 'repository') .'" class="{!}fp-vb-details" href="#"></a>
-                <a title="'. get_string('displaytree', 'repository') .'" class="{!}fp-vb-tree" href="#"></a>
+                <a title="'. get_string('displayicons', 'repository') .'" class="{!}fp-vb-icons" href="#"><img alt="" src="'. $this->pix_url('fp/view_icon_active', 'theme') .'" /></a>
+                <a title="'. get_string('displaydetails', 'repository') .'" class="{!}fp-vb-details" href="#"><img alt="" src="'. $this->pix_url('fp/view_list_active', 'theme') .'" /></a>
+                <a title="'. get_string('displaytree', 'repository') .'" class="{!}fp-vb-tree" href="#"><img alt="" src="'. $this->pix_url('fp/view_tree_active', 'theme') .'" /></a>
             </div>
         </div>
         <div class="fp-pathbar">
@@ -304,9 +304,9 @@ class core_files_renderer extends plugin_renderer_base {
      */
     private function fm_js_template_mkdir() {
         $rv = '
-<div class="filemanager fp-mkdir-dlg">
+<div class="filemanager fp-mkdir-dlg" role="dialog" aria-live="assertive" aria-labelledby="fp-mkdir-dlg-title">
     <div class="fp-mkdir-dlg-text">
-        <label>' . get_string('newfoldername', 'repository') . '</label><br/>
+        <label id="fp-mkdir-dlg-title">' . get_string('newfoldername', 'repository') . '</label><br/>
         <input type="text" />
     </div>
     <button class="{!}fp-dlg-butcreate">'.get_string('makeafolder').'</button>
@@ -367,6 +367,7 @@ class core_files_renderer extends plugin_renderer_base {
      * @return string
      */
     private function fm_js_template_fileselectlayout() {
+        global $OUTPUT;
         $strloading  = get_string('loading', 'repository');
         $icon_progress = $this->pix_icon('i/loading_small', $strloading).'';
         $rv = '
@@ -377,7 +378,7 @@ class core_files_renderer extends plugin_renderer_base {
     <form>
         <button class="{!}fp-file-download">'.get_string('download').'</button>
         <button class="{!}fp-file-delete">'.get_string('delete').'</button>
-        <button class="{!}fp-file-setmain">'.get_string('setmainfile', 'repository').'</button>
+        <button class="{!}fp-file-setmain">'.get_string('setmainfile', 'repository').'</button><span class="fp-file-setmain-help">'.$OUTPUT->help_icon('setmainfile', 'repository').'</span>
         <button class="{!}fp-file-zip">'.get_string('zip', 'editor').'</button>
         <button class="{!}fp-file-unzip">'.get_string('unzip').'</button>
         <div class="fp-hr"></div>
@@ -400,7 +401,7 @@ class core_files_renderer extends plugin_renderer_base {
             <button class="{!}fp-file-cancel">'.get_string('cancel').'</button>
         </div>
     </form>
-    <div class="fp-info">
+    <div class="fp-info clearfix">
         <div class="fp-hr"></div>
         <p class="{!}fp-thumbnail"></p>
         <div class="fp-fileinfo">
@@ -521,28 +522,28 @@ class core_files_renderer extends plugin_renderer_base {
      */
     private function fp_js_template_generallayout() {
         $rv = '
-<div class="file-picker fp-generallayout">
+<div tabindex="0" class="file-picker fp-generallayout" role="dialog" aria-live="assertive">
     <div class="fp-repo-area">
         <ul class="fp-list">
-            <li class="{!}fp-repo"><a href="#"><img class="{!}fp-repo-icon" alt="'. get_string('repositoryicon', 'repository') .'" width="16" height="16" />&nbsp;<span class="{!}fp-repo-name"></span></a></li>
+            <li class="{!}fp-repo"><a href="#"><img class="{!}fp-repo-icon" alt=" " width="16" height="16" />&nbsp;<span class="{!}fp-repo-name"></span></a></li>
         </ul>
     </div>
-    <div class="fp-repo-items">
+    <div class="fp-repo-items" tabindex="0">
         <div class="fp-navbar">
             <div>
                 <div class="{!}fp-toolbar">
                     <div class="{!}fp-tb-back"><a href="#">'.get_string('back', 'repository').'</a></div>
                     <div class="{!}fp-tb-search"><form></form></div>
-                    <div class="{!}fp-tb-refresh"><a href="#"><img alt="'. get_string('refresh', 'repository') .'"  src="'.$this->pix_url('a/refresh').'" /></a></div>
-                    <div class="{!}fp-tb-logout"><img alt="'. get_string('logout', 'repository') .'" src="'.$this->pix_url('a/logout').'" /><a href="#"></a></div>
-                    <div class="{!}fp-tb-manage"><a href="#"><img alt="'. get_string('settings', 'repository') .'" src="'.$this->pix_url('a/setting').'" /> '.get_string('manageurl', 'repository').'</a></div>
-                    <div class="{!}fp-tb-help"><a href="#"><img alt="'. get_string('help', 'repository') .'" src="'.$this->pix_url('a/help').'" /> '.get_string('help').'</a></div>
+                    <div class="{!}fp-tb-refresh"><a title="'. get_string('refresh', 'repository') .'" href="#"><img alt=""  src="'.$this->pix_url('a/refresh').'" /></a></div>
+                    <div class="{!}fp-tb-logout"><a title="'. get_string('logout', 'repository') .'" href="#"><img alt="" src="'.$this->pix_url('a/logout').'" /></a></div>
+                    <div class="{!}fp-tb-manage"><a title="'. get_string('settings', 'repository') .'" href="#"><img alt="" src="'.$this->pix_url('a/setting').'" /></a></div>
+                    <div class="{!}fp-tb-help"><a title="'. get_string('help', 'repository') .'" href="#"><img alt="" src="'.$this->pix_url('a/help').'" /></a></div>
                     <div class="{!}fp-tb-message"></div>
                 </div>
                 <div class="{!}fp-viewbar">
-                    <a title="'. get_string('displayicons', 'repository') .'" class="{!}fp-vb-icons" href="#"></a>
-                    <a title="'. get_string('displaydetails', 'repository') .'" class="{!}fp-vb-details" href="#"></a>
-                    <a title="'. get_string('displaytree', 'repository') .'" class="{!}fp-vb-tree" href="#"></a>
+                    <a title="'. get_string('displayicons', 'repository') .'" class="{!}fp-vb-icons" href="#"><img alt="" src="'. $this->pix_url('fp/view_icon_active', 'theme') .'" /></a>
+                    <a title="'. get_string('displaydetails', 'repository') .'" class="{!}fp-vb-details" href="#"><img alt="" src="'. $this->pix_url('fp/view_list_active', 'theme') .'" /></a>
+                    <a title="'. get_string('displaytree', 'repository') .'" class="{!}fp-vb-tree" href="#"><img alt="" src="'. $this->pix_url('fp/view_tree_active', 'theme') .'" /></a>
                 </div>
                 <div class="fp-clear-left"></div>
             </div>
@@ -699,7 +700,7 @@ class core_files_renderer extends plugin_renderer_base {
             <button class="{!}fp-select-cancel">'.get_string('cancel').'</button>
         </div>
     </form>
-    <div class="fp-info">
+    <div class="fp-info clearfix">
         <div class="fp-hr"></div>
         <p class="{!}fp-thumbnail"></p>
         <div class="fp-fileinfo">
@@ -803,8 +804,8 @@ class core_files_renderer extends plugin_renderer_base {
      */
     private function fp_js_template_message() {
         $rv = '
-<div class="file-picker fp-msg">
-    <p class="{!}fp-msg-text"></p>
+<div class="file-picker fp-msg" role="alertdialog" aria-live="assertive" aria-labelledby="fp-msg-labelledby">
+    <p class="{!}fp-msg-text" id="fp-msg-labelledby"></p>
     <button class="{!}fp-msg-butok">'.get_string('ok').'</button>
 </div>';
         return preg_replace('/\{\!\}/', '', $rv);

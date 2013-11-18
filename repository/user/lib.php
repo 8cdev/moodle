@@ -160,13 +160,11 @@ class repository_user extends repository {
     }
 
     /**
-     * Return reference file life time
+     * Is this repository accessing private data?
      *
-     * @param string $ref
-     * @return int
+     * @return bool
      */
-    public function get_reference_file_lifetime($ref) {
-        // this should be realtime
-        return 0;
+    public function contains_private_data() {
+        return false;
     }
 }

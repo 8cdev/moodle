@@ -16,6 +16,7 @@
 
 /**
  * This file contains the moodle hooks for the assign module.
+ *
  * It delegates most functions to the assignment class.
  *
  * @package   mod_assign
@@ -59,8 +60,9 @@ function assign_delete_instance($id) {
  * This function is used by the reset_course_userdata function in moodlelib.
  * This function will remove all assignment submissions and feedbacks in the database
  * and clean up any related data.
- * @param $data the data submitted from the reset course.
- * @return array status array
+ *
+ * @param stdClass $data the data submitted from the reset course.
+ * @return array
  */
 function assign_reset_userdata($data) {
     global $CFG, $DB;
@@ -109,7 +111,7 @@ function assign_reset_gradebook($courseid, $type='') {
 /**
  * Implementation of the function for printing the form elements that control
  * whether the course reset functionality affects the assignment.
- * @param $mform form passed by reference
+ * @param moodleform $mform form passed by reference
  */
 function assign_reset_course_form_definition(&$mform) {
     $mform->addElement('header', 'assignheader', get_string('modulenameplural', 'assign'));
@@ -131,10 +133,10 @@ function assign_reset_course_form_defaults($course) {
  *
  * This is done by calling the update_instance() method of the assignment type class
  * @param stdClass $data
- * @param mod_assign_mod_form $form
+ * @param stdClass $form - unused
  * @return object
  */
-function assign_update_instance(stdClass $data, mod_assign_mod_form $form) {
+function assign_update_instance(stdClass $data, $form) {
     global $CFG;
     require_once($CFG->dirroot . '/mod/assign/locallib.php');
     $context = context_module::instance($data->coursemodule);
@@ -150,20 +152,33 @@ function assign_update_instance(stdClass $data, mod_assign_mod_form $form) {
  */
 function assign_supports($feature) {
     switch($feature) {
-        case FEATURE_GROUPS:                  return true;
-        case FEATURE_GROUPINGS:               return true;
-        case FEATURE_GROUPMEMBERSONLY:        return true;
-        case FEATURE_MOD_INTRO:               return true;
-        case FEATURE_COMPLETION_TRACKS_VIEWS: return true;
-        case FEATURE_COMPLETION_HAS_RULES:    return true;
-        case FEATURE_GRADE_HAS_GRADE:         return true;
-        case FEATURE_GRADE_OUTCOMES:          return true;
-        case FEATURE_BACKUP_MOODLE2:          return true;
-        case FEATURE_SHOW_DESCRIPTION:        return true;
-        case FEATURE_ADVANCED_GRADING:        return true;
-        case FEATURE_PLAGIARISM:              return true;
+        case FEATURE_GROUPS:
+            return true;
+        case FEATURE_GROUPINGS:
+            return true;
+        case FEATURE_GROUPMEMBERSONLY:
+            return true;
+        case FEATURE_MOD_INTRO:
+            return true;
+        case FEATURE_COMPLETION_TRACKS_VIEWS:
+            return true;
+        case FEATURE_COMPLETION_HAS_RULES:
+            return true;
+        case FEATURE_GRADE_HAS_GRADE:
+            return true;
+        case FEATURE_GRADE_OUTCOMES:
+            return true;
+        case FEATURE_BACKUP_MOODLE2:
+            return true;
+        case FEATURE_SHOW_DESCRIPTION:
+            return true;
+        case FEATURE_ADVANCED_GRADING:
+            return true;
+        case FEATURE_PLAGIARISM:
+            return true;
 
-        default: return null;
+        default:
+            return null;
     }
 }
 
@@ -267,11 +282,11 @@ function assign_get_coursemodule_info($coursemodule) {
  * @param stdClass $currentcontext Current context of block
  */
 function assign_page_type_list($pagetype, $parentcontext, $currentcontext) {
-    $module_pagetype = array(
+    $modulepagetype = array(
         'mod-assign-*' => get_string('page-mod-assign-x', 'assign'),
         'mod-assign-view' => get_string('page-mod-assign-view', 'assign'),
     );
-    return $module_pagetype;
+    return $modulepagetype;
 }
 
 /**
@@ -337,49 +352,8 @@ function assign_print_overview($courses, &$htmlarray) {
     // We do all possible database work here *outside* of the loop to ensure this scales.
     list($sqlassignmentids, $assignmentidparams) = $DB->get_in_or_equal($assignmentids);
 
-    // Build up and array of unmarked submissions indexed by assignment id/ userid
-    // for use where the user has grading rights on assignment.
-    $dbparams = array_merge(array(ASSIGN_SUBMISSION_STATUS_SUBMITTED), $assignmentidparams);
-    $rs = $DB->get_recordset_sql('SELECT
-                                      s.assignment as assignment,
-                                      s.userid as userid,
-                                      s.id as id,
-                                      s.status as status,
-                                      g.timemodified as timegraded
-                                  FROM {assign_submission} s
-                                  LEFT JOIN {assign_grades} g ON
-                                      s.userid = g.userid AND
-                                      s.assignment = g.assignment
-                                  WHERE
-                                      ( g.timemodified is NULL OR
-                                      s.timemodified > g.timemodified ) AND
-                                      s.timemodified IS NOT NULL AND
-                                      s.status = ? AND
-                                      s.assignment ' . $sqlassignmentids, $dbparams);
-
-    $unmarkedsubmissions = array();
-    foreach ($rs as $rd) {
-        $unmarkedsubmissions[$rd->assignment][$rd->userid] = $rd->id;
-    }
-    $rs->close();
-
-    // Get all user submissions, indexed by assignment id.
-    $dbparams = array_merge(array($USER->id, $USER->id), $assignmentidparams);
-    $mysubmissions = $DB->get_records_sql('SELECT
-                                               a.id AS assignment,
-                                               a.nosubmissions AS nosubmissions,
-                                               g.timemodified AS timemarked,
-                                               g.grader AS grader,
-                                               g.grade AS grade,
-                                               s.status AS status
-                                           FROM {assign} a
-                                           LEFT JOIN {assign_grades} g ON
-                                               g.assignment = a.id AND
-                                               g.userid = ?
-                                           LEFT JOIN {assign_submission} s ON
-                                               s.assignment = a.id AND
-                                               s.userid = ?
-                                           WHERE a.id ' . $sqlassignmentids, $dbparams);
+    $mysubmissions = null;
+    $unmarkedsubmissions = null;
 
     foreach ($assignments as $assignment) {
         // Do not show assignments that are not open.
@@ -415,6 +389,34 @@ function assign_print_overview($courses, &$htmlarray) {
         }
         $context = context_module::instance($assignment->coursemodule);
         if (has_capability('mod/assign:grade', $context)) {
+            if (!isset($unmarkedsubmissions)) {
+                // Build up and array of unmarked submissions indexed by assignment id/ userid
+                // for use where the user has grading rights on assignment.
+                $dbparams = array_merge(array(ASSIGN_SUBMISSION_STATUS_SUBMITTED), $assignmentidparams);
+                $rs = $DB->get_recordset_sql('SELECT
+                                                  s.assignment as assignment,
+                                                  s.userid as userid,
+                                                  s.id as id,
+                                                  s.status as status,
+                                                  g.timemodified as timegraded
+                                              FROM {assign_submission} s
+                                              LEFT JOIN {assign_grades} g ON
+                                                  s.userid = g.userid AND
+                                                  s.assignment = g.assignment
+                                              WHERE
+                                                  ( g.timemodified is NULL OR
+                                                  s.timemodified > g.timemodified ) AND
+                                                  s.timemodified IS NOT NULL AND
+                                                  s.status = ? AND
+                                                  s.assignment ' . $sqlassignmentids, $dbparams);
+
+                $unmarkedsubmissions = array();
+                foreach ($rs as $rd) {
+                    $unmarkedsubmissions[$rd->assignment][$rd->userid] = $rd->id;
+                }
+                $rs->close();
+            }
+
             // Count how many people can submit.
             $submissions = 0;
             if ($students = get_enrolled_users($context, 'mod/assign:view', 0, 'u.id')) {
@@ -435,6 +437,26 @@ function assign_print_overview($courses, &$htmlarray) {
             }
         }
         if (has_capability('mod/assign:submit', $context)) {
+            if (!isset($mysubmissions)) {
+                // Get all user submissions, indexed by assignment id.
+                $dbparams = array_merge(array($USER->id, $USER->id), $assignmentidparams);
+                $mysubmissions = $DB->get_records_sql('SELECT
+                                                           a.id AS assignment,
+                                                           a.nosubmissions AS nosubmissions,
+                                                           g.timemodified AS timemarked,
+                                                           g.grader AS grader,
+                                                           g.grade AS grade,
+                                                           s.status AS status
+                                                       FROM {assign} a
+                                                       LEFT JOIN {assign_grades} g ON
+                                                           g.assignment = a.id AND
+                                                           g.userid = ?
+                                                       LEFT JOIN {assign_submission} s ON
+                                                           s.assignment = a.id AND
+                                                           s.userid = ?
+                                                       WHERE a.id ' . $sqlassignmentids, $dbparams);
+            }
+
             $str .= '<div class="details">';
             $str .= get_string('mysubmission', 'assign');
             $submission = $mysubmissions[$assignment->id];
@@ -468,6 +490,7 @@ function assign_print_overview($courses, &$htmlarray) {
  * @param mixed $course the course to print activity for
  * @param bool $viewfullnames boolean to determine whether to show full names or not
  * @param int $timestart the time the rendering started
+ * @return bool true if activity was printed, false otherwise.
  */
 function assign_print_recent_activity($course, $viewfullnames, $timestart) {
     global $CFG, $USER, $DB, $OUTPUT;
@@ -475,8 +498,9 @@ function assign_print_recent_activity($course, $viewfullnames, $timestart) {
     // Do not use log table if possible, it may be huge.
 
     $dbparams = array($timestart, $course->id, 'assign');
-    if (!$submissions = $DB->get_records_sql('SELECT asb.id, asb.timemodified, cm.id AS cmid, asb.userid,
-                                                     u.firstname, u.lastname, u.email, u.picture
+    $namefields = user_picture::fields('u', null, 'userid');
+    if (!$submissions = $DB->get_records_sql("SELECT asb.id, asb.timemodified, cm.id AS cmid,
+                                                     $namefields
                                                 FROM {assign_submission} asb
                                                      JOIN {assign} a      ON a.id = asb.assignment
                                                      JOIN {course_modules} cm ON cm.instance = a.id
@@ -485,7 +509,7 @@ function assign_print_recent_activity($course, $viewfullnames, $timestart) {
                                                WHERE asb.timemodified > ? AND
                                                      a.course = ? AND
                                                      md.name = ?
-                                            ORDER BY asb.timemodified ASC', $dbparams)) {
+                                            ORDER BY asb.timemodified ASC", $dbparams)) {
          return false;
     }
 
@@ -636,10 +660,10 @@ function assign_get_recent_mod_activity(&$activities,
     }
 
     $groupmode       = groups_get_activity_groupmode($cm, $course);
-    $cm_context      = context_module::instance($cm->id);
-    $grader          = has_capability('moodle/grade:viewall', $cm_context);
-    $accessallgroups = has_capability('moodle/site:accessallgroups', $cm_context);
-    $viewfullnames   = has_capability('moodle/site:viewfullnames', $cm_context);
+    $cmcontext      = context_module::instance($cm->id);
+    $grader          = has_capability('moodle/grade:viewall', $cmcontext);
+    $accessallgroups = has_capability('moodle/site:accessallgroups', $cmcontext);
+    $viewfullnames   = has_capability('moodle/site:viewfullnames', $cmcontext);
 
     if (is_null($modinfo->get_groups())) {
         // Load all my groups and cache it in modinfo.
@@ -838,7 +862,7 @@ function assign_cron() {
     require_once($CFG->dirroot . '/mod/assign/locallib.php');
     assign::cron();
 
-    $plugins = get_plugin_list('assignsubmission');
+    $plugins = core_component::get_plugin_list('assignsubmission');
 
     foreach ($plugins as $name => $plugin) {
         $disabled = get_config('assignsubmission_' . $name, 'disabled');
@@ -848,7 +872,7 @@ function assign_cron() {
             $class::cron();
         }
     }
-    $plugins = get_plugin_list('assignfeedback');
+    $plugins = core_component::get_plugin_list('assignfeedback');
 
     foreach ($plugins as $name => $plugin) {
         $disabled = get_config('assignfeedback_' . $name, 'disabled');
@@ -1110,11 +1134,11 @@ function assign_user_outline($course, $user, $coursemodule, $assignment) {
     $gradingitem = $gradinginfo->items[0];
     $gradebookgrade = $gradingitem->grades[$user->id];
 
-    if (!$gradebookgrade) {
+    if (empty($gradebookgrade->str_long_grade)) {
         return null;
     }
     $result = new stdClass();
-    $result->info = get_string('outlinegrade', 'assign', $gradebookgrade->grade);
+    $result->info = get_string('outlinegrade', 'assign', $gradebookgrade->str_long_grade);
     $result->time = $gradebookgrade->dategraded;
 
     return $result;

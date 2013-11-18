@@ -25,6 +25,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+require_once(__DIR__.'/adminlib.php');
+
 if ($ADMIN->fulltree) {
 
     //--- general settings -----------------------------------------------------------------------------------
@@ -32,7 +34,7 @@ if ($ADMIN->fulltree) {
 
     $settings->add(new admin_setting_configfile('enrol_flatfile/location', get_string('location', 'enrol_flatfile'), get_string('location_desc', 'enrol_flatfile'), ''));
 
-    $options = textlib::get_encodings();
+    $options = core_text::get_encodings();
     $settings->add(new admin_setting_configselect('enrol_flatfile/encoding', get_string('encoding', 'enrol_flatfile'), '', 'UTF-8', $options));
 
     $settings->add(new admin_setting_configcheckbox('enrol_flatfile/mailstudents', get_string('notifyenrolled', 'enrol_flatfile'), '', 0));
@@ -61,8 +63,8 @@ if ($ADMIN->fulltree) {
 
         $roles = role_fix_names(get_all_roles());
 
-        foreach ($roles as $id => $role) {
-            $settings->add(new admin_setting_configtext('enrol_flatfile/map_'.$id, $role->localname, '', $role->shortname));
+        foreach ($roles as $role) {
+            $settings->add(new enrol_flatfile_role_setting($role));
         }
         unset($roles);
     }

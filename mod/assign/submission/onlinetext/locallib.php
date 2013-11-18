@@ -153,19 +153,16 @@ class assign_submission_onlinetext extends assign_submission_plugin {
                                      'id',
                                      false);
 
-        // Let Moodle know that an assessable content was uploaded (eg for plagiarism detection).
-        $eventdata = new stdClass();
-        $eventdata->modulename = 'assign';
-        $eventdata->cmid = $this->assignment->get_course_module()->id;
-        $eventdata->itemid = $submission->id;
-        $eventdata->courseid = $this->assignment->get_course()->id;
-        $eventdata->userid = $USER->id;
-        $eventdata->content = trim($text);
-
-        if ($files) {
-            $eventdata->pathnamehashes = array_keys($files);
-        }
-        events_trigger('assessable_content_uploaded', $eventdata);
+        $params = array(
+            'context' => context_module::instance($this->assignment->get_course_module()->id),
+            'objectid' => $submission->id,
+            'other' => array(
+                'pathnamehashes' => array_keys($files),
+                'content' => trim($text)
+            )
+        );
+        $event = \assignsubmission_onlinetext\event\assessable_uploaded::create($params);
+        $event->trigger();
 
         if ($onlinetextsubmission) {
 
@@ -468,6 +465,48 @@ class assign_submission_onlinetext extends assign_submission_plugin {
      */
     public function get_file_areas() {
         return array(ASSIGNSUBMISSION_ONLINETEXT_FILEAREA=>$this->get_name());
+    }
+
+    /**
+     * Copy the student's submission from a previous submission. Used when a student opts to base their resubmission
+     * on the last submission.
+     * @param stdClass $sourcesubmission
+     * @param stdClass $destsubmission
+     */
+    public function copy_submission(stdClass $sourcesubmission, stdClass $destsubmission) {
+        global $DB;
+
+        // Copy the files across (attached via the text editor).
+        $contextid = $this->assignment->get_context()->id;
+        $fs = get_file_storage();
+        $files = $fs->get_area_files($contextid, 'assignsubmission_onlinetext',
+                                     ASSIGNSUBMISSION_ONLINETEXT_FILEAREA, $sourcesubmission->id, 'id', false);
+        foreach ($files as $file) {
+            $fieldupdates = array('itemid' => $destsubmission->id);
+            $fs->create_file_from_storedfile($fieldupdates, $file);
+        }
+
+        // Copy the assignsubmission_onlinetext record.
+        $onlinetextsubmission = $this->get_onlinetext_submission($sourcesubmission->id);
+        if ($onlinetextsubmission) {
+            unset($onlinetextsubmission->id);
+            $onlinetextsubmission->submission = $destsubmission->id;
+            $DB->insert_record('assignsubmission_onlinetext', $onlinetextsubmission);
+        }
+        return true;
+    }
+
+    /**
+     * Return a description of external params suitable for uploading an onlinetext submission from a webservice.
+     *
+     * @return external_description|null
+     */
+    public function get_external_parameters() {
+        $editorparams = array('text' => new external_value(PARAM_TEXT, 'The text for this submission.'),
+                              'format' => new external_value(PARAM_INT, 'The format for this submission'),
+                              'itemid' => new external_value(PARAM_INT, 'The draft area id for files attached to the submission'));
+        $editorstructure = new external_single_structure($editorparams);
+        return array('onlinetext_editor' => $editorstructure);
     }
 
 }

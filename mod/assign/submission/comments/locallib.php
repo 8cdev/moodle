@@ -71,7 +71,8 @@ class assign_submission_comments extends assign_submission_plugin {
         $comment = new comment($options);
         $comment->set_view_permission(true);
 
-        return $comment->output(true);
+        $o = $this->assignment->get_renderer()->container($comment->output(true), 'commentscontainer');
+        return $o;
     }
 
     /**
@@ -169,15 +170,22 @@ class assign_submission_comments extends assign_submission_plugin {
     }
 
     /**
-     * If blind marking is enabled then disable this plugin (it shows names)
+     * Automatically enable or disable this plugin based on "$CFG->commentsenabled"
      *
      * @return bool
      */
     public function is_enabled() {
-        if ($this->assignment->has_instance() && $this->assignment->is_blind_marking()) {
-            return false;
-        }
-        return parent::is_enabled();
+        global $CFG;
+
+        return (!empty($CFG->usecomments));
     }
 
+    /**
+     * Automatically hide the setting for the submission plugin.
+     *
+     * @return bool
+     */
+    public function is_configurable() {
+        return false;
+    }
 }

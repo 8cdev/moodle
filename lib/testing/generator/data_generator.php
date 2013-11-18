@@ -23,6 +23,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+defined('MOODLE_INTERNAL') || die();
 
 /**
  * Data generator class for unit tests and other tools that need to create fake test sites.
@@ -40,16 +41,6 @@ class testing_data_generator {
     protected $scalecount = 0;
     protected $groupcount = 0;
     protected $groupingcount = 0;
-
-    /**
-     * @var int keep track of how many forum discussions have been created.
-     */
-    protected $forumdiscussioncount = 0;
-
-    /**
-     * @var int keep track of how many forum posts have been created.
-     */
-    protected $forumpostcount = 0;
 
     /** @var array list of plugin generators */
     protected $generators = array();
@@ -92,8 +83,6 @@ EOD;
         $this->categorycount = 0;
         $this->coursecount = 0;
         $this->scalecount = 0;
-        $this->forumdiscussioncount = 0;
-        $this->forumpostcount = 0;
 
         foreach ($this->generators as $generator) {
             $generator->reset();
@@ -101,29 +90,40 @@ EOD;
     }
 
     /**
-     * Return generator for given plugin
-     * @param string $component
-     * @return mixed plugin data generator
+     * Return generator for given plugin or component.
+     * @param string $component the component name, e.g. 'mod_forum' or 'core_question'.
+     * @return component_generator_base or rather an instance of the appropriate subclass.
      */
     public function get_plugin_generator($component) {
-        list($type, $plugin) = normalize_component($component);
-
-        if ($type !== 'mod' and $type !== 'block') {
-            throw new coding_exception("Plugin type $type does not support generators yet");
+        list($type, $plugin) = core_component::normalize_component($component);
+        $cleancomponent = $type . '_' . $plugin;
+        if ($cleancomponent != $component) {
+            debugging("Please specify the component you want a generator for as " .
+                    "{$cleancomponent}, not {$component}.", DEBUG_DEVELOPER);
+            $component = $cleancomponent;
         }
 
-        $dir = get_plugin_directory($type, $plugin);
-
-        if (!isset($this->generators[$type.'_'.$plugin])) {
-            $lib = "$dir/tests/generator/lib.php";
-            if (!include_once($lib)) {
-                throw new coding_exception("Plugin $component does not support data generator, missing tests/generator/lib");
-            }
-            $classname = $type.'_'.$plugin.'_generator';
-            $this->generators[$type.'_'.$plugin] = new $classname($this);
+        if (isset($this->generators[$component])) {
+            return $this->generators[$component];
         }
 
-        return $this->generators[$type.'_'.$plugin];
+        $dir = core_component::get_component_directory($component);
+        $lib = $dir . '/tests/generator/lib.php';
+        if (!$dir || !is_readable($lib)) {
+            throw new coding_exception("Component {$component} does not support " .
+                    "generators yet. Missing tests/generator/lib.php.");
+        }
+
+        include_once($lib);
+        $classname = $component . '_generator';
+
+        if (!class_exists($classname)) {
+            throw new coding_exception("Component {$component} does not support " .
+                    "data generators yet. Class {$classname} not found.");
+        }
+
+        $this->generators[$component] = new $classname($this);
+        return $this->generators[$component];
     }
 
     /**
@@ -159,6 +159,26 @@ EOD;
             $record['lastname'] = 'Lastname'.$i;
         }
 
+        if (!isset($record['firstnamephonetic'])) {
+            $firstnamephonetic = rand(0, 59);
+            $record['firstnamephonetic'] = $this->firstnames[$firstnamephonetic];
+        }
+
+        if (!isset($record['lasttnamephonetic'])) {
+            $lastnamephonetic = rand(0, 59);
+            $record['lastnamephonetic'] = $this->lastnames[$lastnamephonetic];
+        }
+
+        if (!isset($record['middlename'])) {
+            $middlename = rand(0, 59);
+            $record['middlename'] = $this->firstnames[$middlename];
+        }
+
+        if (!isset($record['alternatename'])) {
+            $alternatename = rand(0, 59);
+            $record['alternatename'] = $this->firstnames[$alternatename];
+        }
+
         if (!isset($record['idnumber'])) {
             $record['idnumber'] = '';
         }
@@ -176,8 +196,12 @@ EOD;
             }
         }
 
-        if (!isset($record['password'])) {
-            $record['password'] = 'lala';
+        if (isset($record['password'])) {
+            $record['password'] = hash_internal_user_password($record['password']);
+        } else {
+            // The auth plugin may not fully support this,
+            // but it is still better/faster than hashing random stuff.
+            $record['password'] = AUTH_PASSWORD_NOT_CACHED;
         }
 
         if (!isset($record['email'])) {
@@ -204,9 +228,6 @@ EOD;
         $record['timemodified'] = $record['timecreated'];
         $record['lastip'] = '0.0.0.0';
 
-        // Use fast hash during testing.
-        $record['password'] = hash_internal_user_password($record['password'], true);
-
         if ($record['deleted']) {
             $delname = $record['email'].'.'.time();
             while ($DB->record_exists('user', array('username'=>$delname))) {
@@ -231,11 +252,11 @@ EOD;
      * Create a test course category
      * @param array|stdClass $record
      * @param array $options
-     * @return stdClass course category record
+     * @return coursecat course category record
      */
     public function create_category($record=null, array $options=null) {
         global $DB, $CFG;
-        require_once("$CFG->dirroot/course/lib.php");
+        require_once("$CFG->libdir/coursecatlib.php");
 
         $this->categorycount++;
         $i = $this->categorycount;
@@ -246,43 +267,15 @@ EOD;
             $record['name'] = 'Course category '.$i;
         }
 
-        if (!isset($record['idnumber'])) {
-            $record['idnumber'] = '';
-        }
-
         if (!isset($record['description'])) {
             $record['description'] = "Test course category $i\n$this->loremipsum";
         }
 
-        if (!isset($record['descriptionformat'])) {
-            $record['descriptionformat'] = FORMAT_MOODLE;
+        if (!isset($record['idnumber'])) {
+            $record['idnumber'] = '';
         }
 
-        if (!isset($record['parent'])) {
-            $record['parent'] = 0;
-        }
-
-        if (empty($record['parent'])) {
-            $parent = new stdClass();
-            $parent->path = '';
-            $parent->depth = 0;
-        } else {
-            $parent = $DB->get_record('course_categories', array('id'=>$record['parent']), '*', MUST_EXIST);
-        }
-        $record['depth'] = $parent->depth+1;
-
-        $record['sortorder'] = 0;
-        $record['timemodified'] = time();
-        $record['timecreated'] = $record['timemodified'];
-
-        $catid = $DB->insert_record('course_categories', $record);
-        $path = $parent->path . '/' . $catid;
-        $DB->set_field('course_categories', 'path', $path, array('id'=>$catid));
-        context_coursecat::instance($catid);
-
-        fix_course_sortorder();
-
-        return $DB->get_record('course_categories', array('id'=>$catid), '*', MUST_EXIST);
+        return coursecat::create($record);
     }
 
     /**
@@ -584,6 +577,35 @@ EOD;
     }
 
     /**
+     * Create an instance of a repository.
+     *
+     * @param string type of repository to create an instance for.
+     * @param array|stdClass $record data to use to up set the instance.
+     * @param array $options options
+     * @return stdClass repository instance record
+     * @since 2.5.1
+     */
+    public function create_repository($type, $record=null, array $options = null) {
+        $generator = $this->get_plugin_generator('repository_'.$type);
+        return $generator->create_instance($record, $options);
+    }
+
+    /**
+     * Create an instance of a repository.
+     *
+     * @param string type of repository to create an instance for.
+     * @param array|stdClass $record data to use to up set the instance.
+     * @param array $options options
+     * @return repository_type object
+     * @since 2.5.1
+     */
+    public function create_repository_type($type, $record=null, array $options = null) {
+        $generator = $this->get_plugin_generator('repository_'.$type);
+        return $generator->create_type($record, $options);
+    }
+
+
+    /**
      * Create a test scale
      * @param array|stdClass $record
      * @param array $options
@@ -635,6 +657,26 @@ EOD;
     }
 
     /**
+     * Helper method which combines $defaults with the values specified in $record.
+     * If $record is an object, it is converted to an array.
+     * Then, for each key that is in $defaults, but not in $record, the value
+     * from $defaults is copied.
+     * @param array $defaults the default value for each field with
+     * @param array|stdClass $record
+     * @return array updated $record.
+     */
+    public function combine_defaults_and_record(array $defaults, $record) {
+        $record = (array) $record;
+
+        foreach ($defaults as $key => $defaults) {
+            if (!array_key_exists($key, $record)) {
+                $record[$key] = $defaults;
+            }
+        }
+        return $record;
+    }
+
+    /**
      * Simplified enrolment of user to course using default options.
      *
      * It is strongly recommended to use only this method for 'manual' and 'self' plugins only!!!
@@ -645,9 +687,12 @@ EOD;
      * @param string $enrol name of enrol plugin,
      *     there must be exactly one instance in course,
      *     it must support enrol_user() method.
+     * @param int $timestart (optional) 0 means unknown
+     * @param int $timeend (optional) 0 means forever
+     * @param int $status (optional) default to ENROL_USER_ACTIVE for new enrolments
      * @return bool success
      */
-    public function enrol_user($userid, $courseid, $roleid = null, $enrol = 'manual') {
+    public function enrol_user($userid, $courseid, $roleid = null, $enrol = 'manual', $timestart = 0, $timeend = 0, $status = null) {
         global $DB;
 
         if (!$plugin = enrol_get_plugin($enrol)) {
@@ -664,140 +709,37 @@ EOD;
             $roleid = $instance->roleid;
         }
 
-        $plugin->enrol_user($instance, $userid, $roleid);
-
+        $plugin->enrol_user($instance, $userid, $roleid, $timestart, $timeend, $status);
         return true;
     }
 
     /**
-     * Function to create a dummy discussion.
+     * Assigns the specified role to a user in the context.
      *
-     * @param array|stdClass $record
-     * @return stdClass the discussion object
+     * @param int $roleid
+     * @param int $userid
+     * @param int $contextid Defaults to the system context
+     * @return int new/existing id of the assignment
      */
-    public function create_forum_discussion($record = null) {
-        global $DB;
+    public function role_assign($roleid, $userid, $contextid = false) {
 
-        // Increment the forum discussion count.
-        $this->forumdiscussioncount++;
-
-        $record = (array) $record;
-
-        if (!isset($record['course'])) {
-            throw new coding_exception('course must be present in phpunit_util::create_forum_discussion() $record');
+        // Default to the system context.
+        if (!$contextid) {
+            $context = context_system::instance();
+            $contextid = $context->id;
         }
 
-        if (!isset($record['forum'])) {
-            throw new coding_exception('forum must be present in phpunit_util::create_forum_discussion() $record');
+        if (empty($roleid)) {
+            throw new coding_exception('roleid must be present in testing_data_generator::role_assign() arguments');
         }
 
-        if (!isset($record['userid'])) {
-            throw new coding_exception('userid must be present in phpunit_util::create_forum_discussion() $record');
+        if (empty($userid)) {
+            throw new coding_exception('userid must be present in testing_data_generator::role_assign() arguments');
         }
 
-        if (!isset($record['name'])) {
-            $record['name'] = "Discussion " . $this->forumdiscussioncount;
-        }
-
-        if (!isset($record['subject'])) {
-            $record['subject'] = "Subject for discussion " . $this->forumdiscussioncount;
-        }
-
-        if (!isset($record['message'])) {
-            $record['message'] = html_writer::tag('p', 'Message for discussion ' . $this->forumdiscussioncount);
-        }
-
-        if (!isset($record['messageformat'])) {
-            $record['messageformat'] = editors_get_preferred_format();
-        }
-
-        if (!isset($record['messagetrust'])) {
-            $record['messagetrust'] = "";
-        }
-
-        if (!isset($record['assessed'])) {
-            $record['assessed'] = '1';
-        }
-
-        if (!isset($record['groupid'])) {
-            $record['groupid'] = "-1";
-        }
-
-        if (!isset($record['timestart'])) {
-            $record['timestart'] = "0";
-        }
-
-        if (!isset($record['timeend'])) {
-            $record['timeend'] = "0";
-        }
-
-        if (!isset($record['mailnow'])) {
-            $record['mailnow'] = "0";
-        }
-
-        $record = (object) $record;
-
-        // Add the discussion.
-        $record->id = forum_add_discussion($record, null, null, $record->userid);
-
-        return $record;
+        return role_assign($roleid, $userid, $contextid);
     }
 
-    /**
-     * Function to create a dummy post.
-     *
-     * @param array|stdClass $record
-     * @return stdClass the post object
-     */
-    public function create_forum_post($record = null) {
-        global $DB;
-
-        // Increment the forum post count.
-        $this->forumpostcount++;
-
-        // Variable to store time.
-        $time = time() + $this->forumpostcount;
-
-        $record = (array) $record;
-
-        if (!isset($record['discussion'])) {
-            throw new coding_exception('discussion must be present in phpunit_util::create_forum_post() $record');
-        }
-
-        if (!isset($record['userid'])) {
-            throw new coding_exception('userid must be present in phpunit_util::create_forum_post() $record');
-        }
-
-        if (!isset($record['parent'])) {
-            $record['parent'] = 0;
-        }
-
-        if (!isset($record['subject'])) {
-            $record['subject'] = 'Forum post subject ' . $this->forumpostcount;
-        }
-
-        if (!isset($record['message'])) {
-            $record['message'] = html_writer::tag('p', 'Forum message post ' . $this->forumpostcount);
-        }
-
-        if (!isset($record['created'])) {
-            $record['created'] = $time;
-        }
-
-        if (!isset($record['modified'])) {
-            $record['modified'] = $time;
-        }
-
-        $record = (object) $record;
-
-        // Add the post.
-        $record->id = $DB->insert_record('forum_posts', $record);
-
-        // Update the last post.
-        forum_discussion_update_last_post($record->discussion);
-
-        return $record;
-    }
 }
 
 /**
